@@ -1,0 +1,123 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String?
+  password  String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  semesters Semester[]
+}
+
+model Semester {
+  id        String    @id @default(cuid())
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  startDate DateTime?
+  endDate   DateTime?
+  isActive  Boolean   @default(false)
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  modules   Module[]
+}
+
+enum ModuleStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model Module {
+  id          String        @id @default(cuid())
+  semesterId  String
+  name        String
+  code        String?
+  ects        Float
+  examDate        DateTime?
+  examTime        String?
+  examLocation    String?
+  examDescription String?
+  status          ModuleStatus  @default(IN_PROGRESS)
+  grade       Float?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  semester    Semester      @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  documents   Document[]
+  topics      Topic[]
+  questions   Question[]
+}
+
+enum DocumentCategory {
+  LECTURE_SLIDES
+  EXAM_PAST
+  EXERCISE
+  LITERATURE
+  OTHER
+}
+
+model Document {
+  id            String           @id @default(cuid())
+  moduleId      String
+  title         String
+  fileName      String
+  fileUrl       String
+  category      DocumentCategory @default(LECTURE_SLIDES)
+  isIndexed     Boolean          @default(false)
+  parsedText    String?
+  createdAt     DateTime         @default(now())
+  module        Module           @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+}
+
+model Topic {
+  id           String     @id @default(cuid())
+  moduleId     String
+  name         String
+  masteryScore Float      @default(0.0) // 0 bis 100% Klausurreife
+  summary      String?
+  module       Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  questions    Question[]
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  FREE_TEXT
+}
+
+model Question {
+  id             String             @id @default(cuid())
+  moduleId       String
+  topicId        String?
+  type           QuestionType
+  questionText   String
+  options        String?            // JSON string for options & correctness
+  sampleSolution String?
+  sourceRef      String?
+  createdAt      DateTime           @default(now())
+  module         Module             @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  topic          Topic?             @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  progress       QuestionProgress[]
+}
+
+model QuestionProgress {
+  id             String    @id @default(cuid())
+  questionId     String
+  intervalDays   Int       @default(1)
+  nextReviewDate DateTime  @default(now())
+  lastAnswerDate DateTime?
+  lastWasCorrect Boolean?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  question       Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
