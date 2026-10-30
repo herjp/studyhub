@@ -60,10 +60,16 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Registration error:", error);
+    let msg = "Fehler bei der Registrierung.";
+    if (error?.message?.includes("readonly") || error?.message?.includes("unable to open database file")) {
+      msg = "Cloud-Datenbank schreibgeschützt: Für Vercel wird eine Cloud-PostgreSQL-Datenbank (z. B. Supabase/Neon) benötigt.";
+    } else if (error?.message) {
+      msg = `Fehler: ${error.message}`;
+    }
     return NextResponse.json(
-      { error: "Fehler bei der Registrierung." },
+      { error: msg },
       { status: 500 }
     );
   }
