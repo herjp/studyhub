@@ -17,9 +17,11 @@ import {
   Flame,
   Search,
   Check,
+  UploadCloud,
 } from "lucide-react";
 import { FahrschulBar } from "./FahrschulBar";
 import { Portal } from "./Portal";
+import { IcsImportModal } from "./IcsImportModal";
 import { useLanguage } from "@/lib/i18n";
 
 export interface CalendarExam {
@@ -50,6 +52,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
 
   // Modal State for adding/assigning exam
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isIcsModalOpen, setIsIcsModalOpen] = useState(false);
   const [selectedDateStr, setSelectedDateStr] = useState("");
   const [selectedModuleId, setSelectedModuleId] = useState("");
   const [moduleSearchQuery, setModuleSearchQuery] = useState("");
@@ -235,6 +238,16 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
               {lang === "de" ? `Terminliste (${exams.length})` : `Schedule List (${exams.length})`}
             </button>
           </div>
+
+          {/* Import .ics Calendar */}
+          <button
+            onClick={() => setIsIcsModalOpen(true)}
+            title={lang === "de" ? "Vorlesungen & Termine aus Campus-Portal (.ics) importieren" : "Import schedule from campus portal (.ics)"}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-sky-50 dark:bg-sky-950/70 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 transition-all shadow-sm"
+          >
+            <UploadCloud className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+            <span>{lang === "de" ? "📥 .ics importieren" : "📥 Import .ics"}</span>
+          </button>
 
           <button
             onClick={() => handleOpenAddForDate(new Date())}
@@ -590,6 +603,17 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
         </div>
         </Portal>
       )}
+
+      {/* ICS Calendar Import Modal */}
+      <IcsImportModal
+        isOpen={isIcsModalOpen}
+        onClose={() => setIsIcsModalOpen(false)}
+        modules={modules}
+        onSuccess={() => {
+          fetchExams();
+          if (onExamUpdated) onExamUpdated();
+        }}
+      />
     </div>
   );
 }

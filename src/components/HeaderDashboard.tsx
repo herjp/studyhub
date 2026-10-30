@@ -146,102 +146,53 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
   const ectsPercentage = Math.min(100, Math.round((stats.completedEcts / targetEcts) * 100));
 
   return (
-    <header className="sticky top-0 z-40 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          {/* Logo & Brand */}
-          <div className="flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3 group">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-sky-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/25 group-hover:scale-105 transition-transform">
-                <GraduationCap className="w-6 h-6" />
+    <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-sm transition-colors">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5">
+        <div className="flex items-center justify-between gap-3 sm:gap-4">
+          
+          {/* 1. Left: Logo & Brand */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <Link href="/" className="flex items-center gap-2.5 group">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-sky-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/25 group-hover:scale-105 transition-transform flex-shrink-0">
+                <GraduationCap className="w-5 h-5" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base font-black tracking-tight text-slate-900 dark:text-white">
                     StudyHub
-                  </h1>
-                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  </span>
+                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                     <Sparkles className="w-2.5 h-2.5" /> KI 2.0
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {lang === "de"
-                    ? "Semesterplaner, RAG-Altklausuren & Klausur-Readiness-Trainer"
-                    : "Semester planner, RAG exam prep & readiness trainer"}
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block leading-tight">
+                  {lang === "de" ? "Studien- & Klausurmanager" : "Study & Exam Hub"}
                 </p>
               </div>
             </Link>
-
-            {/* Mobile Actions */}
-            <div className="flex items-center gap-1 md:hidden">
-              {currentUser ? (
-                <button
-                  onClick={() => setShowAuthModal(true)}
-                  className="p-1.5 px-2 text-[11px] font-bold rounded-lg bg-indigo-50 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1"
-                  title={currentUser.name || currentUser.email}
-                >
-                  <User className="w-3 h-3" />
-                  <span className="max-w-[55px] truncate">
-                    {currentUser.name ? currentUser.name.split(" ")[0] : "Account"}
-                  </span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => setShowAuthModal(true)}
-                  className="p-1.5 px-2 text-[11px] font-bold rounded-lg bg-indigo-600 text-white flex items-center gap-1"
-                >
-                  <LogIn className="w-3 h-3" />
-                  <span>Login</span>
-                </button>
-              )}
-              <button
-                onClick={() => setLang(lang === "de" ? "en" : "de")}
-                className="px-2 py-1 text-[11px] font-bold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
-              >
-                {lang === "de" ? "🇬🇧 EN" : "🇩🇪 DE"}
-              </button>
-              <Link
-                href="/calendar"
-                className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold"
-              >
-                📅
-              </Link>
-              <button
-                onClick={toggleDarkMode}
-                className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </button>
-              <button
-                onClick={() => setShowSettings(true)}
-                className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-            </div>
           </div>
 
-          {/* Stats Bar (ECTS & GPA Tracker) */}
-          <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
+          {/* 2. Center: Sleek ECTS & GPA Trackers */}
+          <div className="hidden md:flex items-center gap-2.5 lg:gap-3 flex-shrink-0 mx-auto">
             {/* ECTS Tracker (Clickable for ECTS Calculator & Semester Analytics) */}
             <div
               onClick={() => setShowEctsModal(true)}
               title={lang === "de" ? "Klicken für ECTS-Rechner & Semesteranalyse" : "Click for ECTS Calculator & Semester Analytics"}
-              className="bg-slate-50 dark:bg-slate-800/80 hover:bg-indigo-50/50 dark:hover:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-xl px-3.5 py-2 border border-slate-200/80 dark:border-slate-700/60 flex items-center gap-3 min-w-[210px] cursor-pointer transition-all group shadow-sm hover:shadow"
+              className="bg-slate-50/90 dark:bg-slate-800/80 hover:bg-indigo-50/60 dark:hover:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-xl px-3 py-1.5 border border-slate-200/80 dark:border-slate-700/60 flex items-center gap-2.5 cursor-pointer transition-all group shadow-sm hover:shadow"
             >
-              <div className="w-8 h-8 rounded-lg bg-sky-100 dark:bg-sky-950/70 text-sky-600 dark:text-sky-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
-                <BookOpen className="w-4 h-4" />
+              <div className="w-7 h-7 rounded-lg bg-sky-100 dark:bg-sky-950/70 text-sky-600 dark:text-sky-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                <BookOpen className="w-3.5 h-3.5" />
               </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="font-semibold text-slate-700 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex items-center gap-1">
-                    {t.ectsProgress} <span className="text-[10px] opacity-70">↗</span>
+              <div>
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                    {t.ectsProgress} <span className="text-[9px] opacity-70">↗</span>
                   </span>
                   <span className="font-bold text-slate-900 dark:text-slate-100">
                     {formatEcts(stats.completedEcts)} / {targetEcts}
                   </span>
                 </div>
-                <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                <div className="w-24 sm:w-28 bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1">
                   <div
                     className="bg-gradient-to-r from-sky-500 to-indigo-600 h-full rounded-full transition-all duration-500"
                     style={{ width: `${ectsPercentage}%` }}
@@ -251,70 +202,76 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
             </div>
 
             {/* GPA Tracker */}
-            <div className="bg-slate-50 dark:bg-slate-800/80 rounded-xl px-3.5 py-2 border border-slate-200/80 dark:border-slate-700/60 flex items-center gap-3 min-w-[170px]">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
-                <Award className="w-4 h-4" />
+            <div className="bg-slate-50/90 dark:bg-slate-800/80 rounded-xl px-3 py-1.5 border border-slate-200/80 dark:border-slate-700/60 flex items-center gap-2.5 shadow-sm">
+              <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                <Award className="w-3.5 h-3.5" />
               </div>
               <div>
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300 block">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 block uppercase tracking-wider">
                   {t.gpaTracker}
                 </span>
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-base font-black text-slate-900 dark:text-slate-100">
+                  <span className="text-sm font-black text-slate-900 dark:text-slate-100 leading-none">
                     {stats.gpa !== null ? formatGrade(stats.gpa) : "—"}
                   </span>
-                  <span className="text-[11px] text-slate-400 font-medium">
-                    ({formatEcts(stats.gradedEctsSum)} ECTS {lang === "de" ? "gewichtet" : "weighted"})
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    ({formatEcts(stats.gradedEctsSum)} ECTS)
                   </span>
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Desktop Action Buttons */}
-            <div className="hidden md:flex items-center gap-2 pl-2 border-l border-slate-200 dark:border-slate-800">
-              {/* Language Toggle Button */}
-              <button
-                onClick={() => setLang(lang === "de" ? "en" : "de")}
-                title={lang === "de" ? "Switch to English" : "Auf Deutsch wechseln"}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700 transition-colors"
-              >
-                <span>{lang === "de" ? "🇩🇪 DE" : "🇬🇧 EN"}</span>
-              </button>
+          {/* 3. Right: Complete Action Bar (Kalender, Sprache, Dark Mode, Einstellungen & Profil GANZ RECHTS) */}
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0 ml-auto">
+            <Link
+              href="/calendar"
+              title={lang === "de" ? "Klausuren-Kalender öffnen" : "Open Exam Calendar"}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700 transition-colors"
+            >
+              <span>📅</span>
+              <span className="hidden sm:inline">{t.calendar}</span>
+            </Link>
 
-              <Link
-                href="/calendar"
-                title={lang === "de" ? "Klausuren-Kalender öffnen" : "Open Exam Calendar"}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors"
-              >
-                <span>📅</span> {t.calendar}
-              </Link>
-              <button
-                onClick={toggleDarkMode}
-                title={darkMode ? (lang === "de" ? "Hellmodus aktivieren" : "Light mode") : (lang === "de" ? "Dunkelmodus aktivieren" : "Dark mode")}
-                className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </button>
-              <button
-                onClick={() => setShowSettings(true)}
-                title={t.settings}
-                className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
+            <button
+              onClick={() => setLang(lang === "de" ? "en" : "de")}
+              title={lang === "de" ? "Switch to English" : "Auf Deutsch wechseln"}
+              className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700 transition-colors"
+            >
+              {lang === "de" ? "🇩🇪 DE" : "🇬🇧 EN"}
+            </button>
 
-              {/* User Account / Login Pill */}
+            <button
+              onClick={toggleDarkMode}
+              title={darkMode ? (lang === "de" ? "Hellmodus aktivieren" : "Light mode") : (lang === "de" ? "Dunkelmodus aktivieren" : "Dark mode")}
+              className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
+            >
+              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+
+            <button
+              onClick={() => setShowSettings(true)}
+              title={t.settings}
+              className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+
+            {/* User Account / Profile / Login - GANZ RECHTS */}
+            <div className="pl-1 sm:pl-2 border-l border-slate-200 dark:border-slate-800">
               {currentUser ? (
-                <div className="flex items-center gap-1 pl-1">
+                <div className="flex items-center gap-1">
                   <button
                     onClick={() => setShowAuthModal(true)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm"
                     title={currentUser.email}
                   >
-                    <div className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black">
+                    <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black shadow-sm">
                       {(currentUser.name?.[0] || currentUser.email?.[0] || "U").toUpperCase()}
                     </div>
-                    <span className="max-w-[90px] truncate">{currentUser.name || currentUser.email.split("@")[0]}</span>
+                    <span className="max-w-[85px] sm:max-w-[110px] truncate">
+                      {currentUser.name ? currentUser.name.split(" ")[0] : currentUser.email.split("@")[0]}
+                    </span>
                   </button>
                   <button
                     onClick={handleLogout}
@@ -327,7 +284,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
               ) : (
                 <button
                   onClick={() => setShowAuthModal(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-500/20 transition-all hover:scale-[1.02]"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white shadow-sm shadow-indigo-500/25 transition-all hover:scale-[1.02]"
                 >
                   <LogIn className="w-3.5 h-3.5" />
                   <span>{lang === "de" ? "Anmelden" : "Sign In"}</span>
@@ -335,7 +292,24 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
               )}
             </div>
           </div>
+
         </div>
+
+        {/* Mobile Stats Sub-Row (visible only on small screens < md) */}
+        <div className="flex md:hidden items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+          <div
+            onClick={() => setShowEctsModal(true)}
+            className="flex-1 bg-slate-50 dark:bg-slate-800/60 rounded-xl px-2.5 py-1.5 border border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between cursor-pointer text-xs"
+          >
+            <span className="font-semibold text-slate-600 dark:text-slate-400 text-[11px]">{t.ectsProgress}:</span>
+            <span className="font-bold text-slate-900 dark:text-white text-[11px]">{formatEcts(stats.completedEcts)} / {targetEcts}</span>
+          </div>
+          <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl px-2.5 py-1.5 border border-slate-200/60 dark:border-slate-700/60 flex items-center gap-1.5 text-xs">
+            <span className="font-semibold text-slate-600 dark:text-slate-400 text-[11px]">GPA:</span>
+            <span className="font-bold text-slate-900 dark:text-white text-[11px]">{stats.gpa !== null ? formatGrade(stats.gpa) : "—"}</span>
+          </div>
+        </div>
+
       </div>
 
       {/* Settings Modal */}
