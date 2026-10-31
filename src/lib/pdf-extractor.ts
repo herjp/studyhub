@@ -1,6 +1,103 @@
 import { inflate, inflateRaw } from "pako";
 
 /**
+ * Browser-side high fidelity PDF text extractor using Mozilla PDF.js.
+ * Correctly decodes custom font encodings, TrueType/Type0 subsets, and ToUnicode CMaps
+ * so that full lecture books and digital slides are transcribed with authentic German sentences.
+ * Returns empty string if the document has no digital text (e.g. pure scanned photos).
+ */
+export async function extractPdfTextWithPdfJs(input: File | ArrayBuffer): Promise<string> {
+  if (typeof window === "undefined") return "";
+
+  // 1. Ensure PDF.js is loaded in the browser
+  if (!(window as any).pdfjsLib) {
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector('script[data-pdfjs="true"]');
+      if (existing) {
+        existing.addEventListener("load", () => resolve());
+        existing.addEventListener("error", reject);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "/pdf.min.js";
+      script.setAttribute("data-pdfjs", "true");
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => {
+        // Fallback to CDN if needed
+        const cdnScript = document.createElement("script");
+        cdnScript.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+        cdnScript.setAttribute("data-pdfjs", "true");
+        cdnScript.onload = () => resolve();
+        cdnScript.onerror = reject;
+        document.head.appendChild(cdnScript);
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  const pdfjsLib = (window as any).pdfjsLib;
+  if (!pdfjsLib) return "";
+
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
+  } catch (e) {
+    console.warn("GlobalWorkerOptions workerSrc error:", e);
+  }
+
+  try {
+    const arrayBuffer = input instanceof ArrayBuffer ? input : await input.arrayBuffer();
+    // Copy array buffer so underlying buffer isn't detached
+    const data = new Uint8Array(arrayBuffer.slice(0));
+
+    const loadingTask = pdfjsLib.getDocument({
+      data,
+      cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/standard_fonts/",
+    });
+
+    const pdf = await loadingTask.promise;
+    const numPages = pdf.numPages;
+    const pageTexts: string[] = [];
+
+    // Parse up to 150 pages for large books to balance comprehensiveness with browser responsiveness
+    const maxPages = Math.min(numPages, 150);
+
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+      try {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const items = textContent.items || [];
+        const pageLines: string[] = [];
+
+        for (const item of items) {
+          if (item && typeof item.str === "string" && item.str.trim()) {
+            pageLines.push(item.str);
+          }
+        }
+
+        const joined = pageLines.join(" ").replace(/[ \t]+/g, " ").trim();
+        if (joined.length > 0) {
+          pageTexts.push(`[Seite ${pageNum}]\n${joined}`);
+        }
+      } catch (pageErr) {
+        console.warn(`Error reading PDF page ${pageNum}:`, pageErr);
+      }
+    }
+
+    const fullResult = sanitizePostgresString(pageTexts.join("\n\n"));
+    if (fullResult.length > 300000) {
+      return fullResult.slice(0, 300000) + "\n\n[... Auszug für Klausurtrainer gekürzt ...]";
+    }
+    return fullResult;
+  } catch (err: any) {
+    console.warn("PDF.js extraction error:", err);
+    return "";
+  }
+}
+
+/**
  * Strips null bytes (0x00) and dangerous non-printable control characters
  * to ensure compatibility with PostgreSQL text / varchar columns.
  */

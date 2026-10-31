@@ -45,7 +45,7 @@ import { EditQuestionDialog } from "@/components/EditQuestionDialog";
 import { Portal } from "@/components/Portal";
 import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
-import { extractPdfTextFromArrayBuffer, isValidPdfText } from "@/lib/pdf-extractor";
+import { extractPdfTextFromArrayBuffer, extractPdfTextWithPdfJs, isValidPdfText } from "@/lib/pdf-extractor";
 
 /**
  * Automatically downsizes and compresses large smartphone / high-res photos
@@ -266,14 +266,30 @@ function ModuleDetailContent() {
     const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
     const sizeStr = file.size > 1024 * 1024 ? `${sizeMB} MB` : `${Math.round(file.size / 1024)} KB`;
 
-    // 2. Client-side PDF extraction: Extracts text directly in browser in milliseconds
+    // 2. Client-side PDF extraction: High-fidelity Mozilla PDF.js engine
+    // Decodes embedded font subsets, ToUnicode CMaps, and CID fonts to extract genuine sentences
     let clientText = "";
     if (isPdf) {
       try {
-        const ab = await file.arrayBuffer();
-        clientText = extractPdfTextFromArrayBuffer(ab);
-      } catch (err: any) {
-        console.warn("Client PDF extraction:", err);
+        const pdfJsText = await extractPdfTextWithPdfJs(file);
+        if (pdfJsText && isValidPdfText(pdfJsText)) {
+          clientText = pdfJsText;
+        }
+      } catch (pdfJsErr: any) {
+        console.warn("Client PDF.js extraction fallback:", pdfJsErr);
+      }
+
+      // Fallback to stream parser if PDF.js was unavailable or did not find valid text
+      if (!clientText) {
+        try {
+          const ab = await file.arrayBuffer();
+          const fallbackText = extractPdfTextFromArrayBuffer(ab);
+          if (fallbackText && isValidPdfText(fallbackText)) {
+            clientText = fallbackText;
+          }
+        } catch (err: any) {
+          console.warn("Client PDF stream extraction:", err);
+        }
       }
     }
 
@@ -1323,12 +1339,12 @@ function ModuleDetailContent() {
                         <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                         <div className="space-y-1">
                           <p className="font-bold">
-                            {lang === "de" ? "⚠️ Unleserlicher Inhalt oder Scan erkannt" : "⚠️ Incomplete text or scan detected"}
+                            {lang === "de" ? "⚠️ Unleserlicher Inhalt oder veraltete Zeichenkodierung" : "⚠️ Incomplete text or legacy encoding detected"}
                           </p>
                           <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-normal">
                             {lang === "de"
-                              ? "Dieser Text enthält scheinbar unleserliche Steuerzeichen oder ist ein Scan ohne digitalen Text-Layer. Die KI benötigt echten Vorlesungstext, um Prüfungsfragen zu erstellen. Klicke unten auf 'Text bearbeiten', um den Text manuell einzutragen oder zu korrigieren, oder lade das Dokument erneut hoch."
-                              : "This document contains unreadable characters. Click 'Edit text' below to fix or paste readable text."}
+                              ? "Dieses Dokument enthält unleserliche Glyphen/Steuerzeichen (z. B. aus einem früheren Upload oder einem Scan). Bitte lösche das Dokument kurz und lade es erneut hoch – unsere neue Mozilla PDF.js-Engine entschlüsselt Schriftarten jetzt vollständig mit echten Sätzen – oder klicke unten auf 'Text bearbeiten'."
+                              : "This document contains unreadable characters. Please delete and re-upload it with our enhanced PDF.js engine, or click 'Edit text' below."}
                           </p>
                         </div>
                       </div>
