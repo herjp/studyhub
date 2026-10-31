@@ -1405,8 +1405,8 @@ BEVORZUGTE SPRACHE: ${isEnglish ? "ENGLISH" : "GERMAN"}`;
 }
 
 /**
- * Smart Local Knowledge Synthesizer: Produces comprehensive, structured, academic responses
- * complete with Mermaid diagrams, exam pitfalls, and follow-up chips when external AI is unavailable.
+ * Smart Local Knowledge Synthesizer: Dynamically extracts and synthesizes concepts from
+ * the module's actual uploaded documents and database records (no hardcoded curriculum).
  */
 async function generateSmartLocalTutorResponse(params: {
   moduleId: string;
@@ -1418,8 +1418,8 @@ async function generateSmartLocalTutorResponse(params: {
 }): Promise<TutorResponse> {
   const { moduleId, question, isEnglish, sources, topics = [] } = params;
 
-  // 1. Fetch module and sample exam questions
-  const [moduleRecord, sampleQuestions] = await Promise.all([
+  // 1. Fetch module and sample exam questions directly from DB
+  const [moduleRecord, sampleQuestions, recentDocs] = await Promise.all([
     prisma.module.findUnique({
       where: { id: moduleId },
       include: {
@@ -1430,12 +1430,17 @@ async function generateSmartLocalTutorResponse(params: {
     }),
     prisma.question.findMany({
       where: { moduleId },
-      take: 8,
+      take: 6,
       select: {
         questionText: true,
         sampleSolution: true,
         topic: { select: { name: true } },
       },
+    }),
+    prisma.document.findMany({
+      where: { moduleId, isIndexed: true, parsedText: { not: null } },
+      take: 5,
+      select: { title: true, category: true, parsedText: true },
     }),
   ]);
 
@@ -1443,287 +1448,33 @@ async function generateSmartLocalTutorResponse(params: {
   const moduleTopics: Array<{ id: string; name: string; summary: string | null }> =
     moduleRecord?.topics?.length ? moduleRecord.topics : topics;
 
-  // Check if this is the Leadership, Strategy & Change Management module
-  const isLeadershipModule =
-    /leadership|führung|change|organisation|management/i.test(moduleName) ||
-    moduleTopics.some((t: { name: string }) => /change|ambidexter|leadership|motivation/i.test(t.name));
+  // Dynamically extract key concepts & paragraphs from actual documents
+  const relevantSnippets = recentDocs
+    .filter((d) => d.parsedText)
+    .map((d) => {
+      const cleanSnippet = d.parsedText!
+        .replace(/\s+/g, " ")
+        .slice(0, 350)
+        .trim();
+      return `• **${d.title}** (${d.category}):\n  "${cleanSnippet}..."`;
+    });
 
-  const lowerQ = question.toLowerCase();
-  const isSpecificTopic = (term: string) => lowerQ.includes(term);
-
-  // Case A: Specific inquiry about Deci & Ryan / Motivation
-  if (
-    isLeadershipModule &&
-    (isSpecificTopic("deci") ||
-      isSpecificTopic("ryan") ||
-      isSpecificTopic("motivation") ||
-      isSpecificTopic("selbstbestimmung") ||
-      isSpecificTopic("autonomie"))
-  ) {
-    const answer = isEnglish
-      ? `### Core Theoretical Foundation: Self-Determination Theory (Deci & Ryan)
-
-According to **Self-Determination Theory (SDT)** by Edward Deci and Richard Ryan, sustainable high performance and deep employee commitment do not originate primarily from extrinsic incentives (such as monetary bonuses or strict supervision), but from fulfilling three universal psychological basic needs:
-
-1. **Autonomy (Autonomieerleben)**:
-   - The feeling of psychological agency, self-direction, and freedom of choice in how tasks are approached and executed.
-   - *Example in practice*: Granting specialists independent responsibility over creative or exploratory projects instead of micro-management.
-
-2. **Competence (Kompetenzerleben)**:
-   - Feeling effective, overcoming challenging problems, and mastering relevant skills.
-   - *Example in practice*: Providing transparent feedback, intellectual challenges, and acknowledging technical expertise.
-
-3. **Relatedness (Soziale Eingebundenheit)**:
-   - Experiencing genuine psychological safety, trust, belonging, and mutual appreciation in the team.
-   - *Example in practice*: Constructive failure culture and open dialog on equal footing.
-
-> **The Crowding-Out Danger**: Over-controlling leadership and rigid standardizations actively destroy intrinsic motivation, replacing dedication with mere compliance ("Dienst nach Vorschrift").
-
-\`\`\`mermaid
-graph TD
-  SDT[Self-Determination Theory<br/>Deci & Ryan] --> AUT[1. Autonomy<br/>Decision-making freedom]
-  SDT --> KOM[2. Competence<br/>Mastery & Effectiveness]
-  SDT --> SOC[3. Relatedness<br/>Psychological safety & trust]
-  AUT --> INT[High Intrinsic Motivation<br/>Creativity & Commitment]
-  KOM --> INT
-  SOC --> INT
-  MIC[Micro-Management & Rigid Control] -. Crowding-Out .-> AUT
-\`\`\`
-
-#### Key Takeaway for Case Studies & Exams:
-In university examinations, when analyzing demotivated specialists or conflict-ridden teams, always diagnose which of these three specific basic needs has been restricted before recommending leadership interventions.`
-      : `### Theoretisches Fundament: Self-Determination Theory (Deci & Ryan)
-
-Die **Selbstbestimmungstheorie (Self-Determination Theory, SDT)** nach Edward Deci und Richard Ryan bildet das wissenschaftliche Rückgrat für moderne Führung und Mitarbeitermotivation. Sie belegt, dass Höchstleistung und echtes Engagement nicht primär durch extrinsische Belohnungen (Boni) oder rigide Kontrollmechanismen entstehen, sondern durch die Befriedigung dreier angeborener psychologischer Grundbedürfnisse:
-
-1. **Autonomie (Selbstbestimmung)**:
-   - Das Erleben von eigenem Handlungsspielraum, Selbstwirksamkeit und Wahlfreiheit bei der Aufgabenumsetzung.
-   - *Praxisbezug (z.B. TU Wien Altklausur)*: Wird Spezialisten oder kreativen Köpfen durch zu engmaschige Vorgaben die Autonomie entzogen, sinkt die Motivation drastisch ab.
-
-2. **Kompetenzerleben (Wirksamkeit)**:
-   - Das Gefühl, anspruchsvolle Aufgaben erfolgreich zu bewältigen, die eigenen Fähigkeiten wirksam einzusetzen und fachliche Meisterschaft zu erlangen.
-   - *Führungsimpuls*: Wertschätzung für besondere Leistungen und Einbindung in strategische Weichenstellungen.
-
-3. **Soziale Eingebundenheit (Zugehörigkeit)**:
-   - Ein Gefühl der psychologischen Sicherheit, des gegenseitigen Vertrauens und der Akzeptanz im Team und durch die Führungskraft.
-   - *Führungsimpuls*: Partnerschaftlicher Dialog auf Augenhöhe und eine gelebte Fehlerkultur.
-
-> **Klausur-Schwerpunkt (Crowding-Out-Effekt)**: Wird versucht, intrinsisch motivierte Spezialisten mit übermäßiger Kontrolle oder bürokratischen Standardisierungen zu steuern, verdrängen die extrinsischen Zwänge das Autonomieempfinden vollständig (*Crowding-Out-Effekt*).
-
-\`\`\`mermaid
-graph TD
-  SDT[Self-Determination Theory<br/>Deci & Ryan] --> AUT[1. Autonomie<br/>Entscheidungsfreiräume & Gestaltungsfreiheit]
-  SDT --> KOM[2. Kompetenzerleben<br/>Wirksamkeit spüren & Meisterschaft]
-  SDT --> SOC[3. Soziale Eingebundenheit<br/>Psychologische Sicherheit & Vertrauen]
-  AUT --> INT[Hohe Intrinsische Motivation<br/>Kreativität & Commitment]
-  KOM --> INT
-  SOC --> INT
-  KTR[Mikromanagement & Rigidität] -. Verdrängungseffekt .-> AUT
-\`\`\``;
-
-    return {
-      answer,
-      sources: ["Altklausur Leadership (02.12.2025)", "Vorlesungsbuch", "Fall 4: Eine Führungskraft, drei Meetings"],
-      examTip: isEnglish
-        ? "Exam Tip: Clearly distinguish between intrinsic and extrinsic motivation, and explicitly name all three psychological needs of Deci & Ryan."
-        : "Klausur-Tipp: Benenne in Prüfungsaufgaben stets alle drei Grundbedürfnisse (Autonomie, Kompetenz, soziale Eingebundenheit) und belege anhand der Fallstudie, welches davon primär beschnitten wurde.",
-      followUpSuggestions: isEnglish
-        ? ["How do you apply SDT to high-performance teams?", "What is the difference between single and double-loop learning?"]
-        : ["Wie wende ich die SDT auf Fall 9 (MedTec) an?", "Was unterscheidet Tuckmans Storming- von der Norming-Phase?"],
-      modelUsed: "StudyHub Adaptive Engine",
-    };
-  }
-
-  // Case B: General Overview / Core Concepts of the Course
-  if (isLeadershipModule) {
-    const answer = isEnglish
-      ? `# 🏛️ Core Concepts Overview: Leadership, Strategy & Change Management
-
-This university course connects strategic organizational design, behavioral economics, and practical leadership into a coherent framework for managing adaptive organizations.
-
----
-
-### 1. Strategic Change Management & Triple Loop of Change
-* **Core Principle**: Organizational transformations fail not from flawed organizational charts, but from unexamined underlying assumptions and unaddressed micropolitical forces.
-* **The Planning Loop**: Before rolling out changes to the wider company, leaders must pass through a disciplined planning loop to balance the dilemma between **Analysis Paralysis** (endless deliberation that kills momentum) and **Overhasty Activation** (top-down restructuring without buy-in).
-* **Case Study Connection**: In *Case 9 (MedTec Solutions)*, CEO Anna Reiter establishes a structured workshop to align informal power holders and senior engineers prior to executive communication.
-
-### 2. Organizational Ambidexterity & Path Dependency (Prof. Güttel)
-* **Dual Strategic Capabilities**: Sustainable competitive advantage requires balancing two fundamentally opposing forces:
-  * **Exploitation (Efficiency)**: Continuous optimization, standardization, and refining the core business.
-  * **Exploration (Innovation)**: Experimentation, discovering new markets, and deliberately challenging existing routines.
-* **Overcoming Path Dependency**: Successful organizations establish **Simple Rules** (decision-making heuristics) to prevent rigid behavioral lock-ins.
-
-### 3. Motivation & Self-Determination Theory (Deci & Ryan)
-* **3 Universal Psychological Needs**:
-  * **Autonomy**: Decision latitude and personal responsibility without micro-management.
-  * **Competence**: Experience of mastery, technical contribution, and clear impact.
-  * **Relatedness**: Trust, mutual psychological safety, and supportive team dynamics.
-
-### 4. Leadership Value Chain & Team Dynamics (Tuckman)
-* **Güttel's 4 Leadership Value Chains**:
-  * **Enforcement**: Upholding uncompromising quality and process standards.
-  * **Execution**: Day-to-day operational excellence and delivery.
-  * **Enhancement**: Capability building, learning loops, and future-readiness.
-  * **Engagement**: Fostering shared vision, psychological safety, and team trust.
-* **Tuckman's Team Lifecycle**: \`Forming\` → \`Storming\` → \`Norming\` → \`Performing\`.
-  * *Critical Pitfall*: During the *Storming* phase, informal leaders often capture team dynamics if formal leadership remains passive.
-
----
-
-### 📊 Visual Framework & Conceptual Architecture
-
-\`\`\`mermaid
-graph TD
-  subgraph 1. Strategic Change & Ambidexterity
-    STR[Strategic Change Management] --> TLC[Triple Loop of Change: Test Assumptions]
-    AMB[Organizational Ambidexterity] --> EXP[Exploration: Innovation & Novelty]
-    AMB --> EFF[Exploitation: Efficiency & Routines]
-  end
-
-  subgraph 2. Leadership Value Chain after Güttel
-    LVC[Leadership Value Chain] --> ENF[Enforcement: Quality Standards]
-    LVC --> EXE[Execution: Operational Delivery]
-    LVC --> ENH[Enhancement: Learning & Future]
-    LVC --> ENG[Engagement: Trust & Culture]
-  end
-
-  subgraph 3. Motivation & Team Dynamics
-    SDT[Self-Determination Theory Deci & Ryan] --> AUT[Autonomy: Freedom to act]
-    SDT --> KOM[Competence: Mastery]
-    SDT --> SOC[Relatedness: Psychological safety]
-    TUK[Tuckman Model] --> P1[Forming]
-    P1 --> P2[Storming: Micropolitics & Friction]
-    P2 --> P3[Norming: Group Cohesion]
-    P3 --> P4[Performing: High Performance]
-  end
-
-  EXP -.-> ENH
-  EFF -.-> EXE
-  ENG -.-> SDT
-  SDT -.-> TUK
-\`\`\`
-
----
-
-### ⚠️ Typical Exam Pitfalls to Avoid:
-1. **Confusing Exploration with Exploitation**: Exploitation sharpens current capabilities; Exploration develops completely new knowledge domains.
-2. **Treating Change as Mere Structure**: Redrawing the org chart never solves cultural or status-order resistance.
-3. **Passive Leadership in Storming**: In case studies, point out that leaders must actively facilitate the Storming phase to avoid negative informal coalitions.`
-      : `# 🏛️ Kernkonzepte des Moduls: Leadership, Strategy & Change Management
-
-Das Modul verknüpft strategische Organisationsentwicklung, Führungstheorie und Verhaltensökonomie zu einem ganzheitlichen Steuerungsansatz für adaptive Organisationen in dynamischen Märkten.
-
----
-
-### 1. Strategisches Change Management & Triple Loop of Change
-* **Kernaussage**: Reorganisationen scheitern in der Praxis meist nicht an falschen Organigrammen, sondern an unreflektierten Grundannahmen und ungelösten mikropolitischen Kräften.
-* **Der Planning Loop**: Vor der breiten Aktivierung im Unternehmen muss die Führung einen strukturierten Planungsschleifendurchlauf absolvieren. Dadurch wird das klassische Führungsdilemma überwunden:
-  * Weder in **Analysis Paralysis** (endlose Analysen ohne Umsetzung) verharren...
-  * Noch in **übereilte Aktivierung** (vorschnelle Strukturänderungen von oben) verfallen.
-* **Fallbeispiel**: In *Fall 9 (MedTec Solutions)* bindet CEO Anna Reiter Senior Engineers und Führungskräfte in einen strukturierten Planning Workshop ein, bevor neue Strukturen nach außen getragen werden.
-
-### 2. Organisationale Ambidexterie & Pfadabhängigkeit (nach Prof. Güttel)
-* **Das Ambidexterie-Dilemma**: Spitzenorganisationen müssen zwei widersprüchliche Fähigkeiten gleichzeitig beherrschen:
-  * **Exploitation (Effizienz)**: Bestehendes Kerngeschäft optimieren, Skaleneffekte nutzen und Standardprozesse festigen.
-  * **Exploration (Innovation)**: Radikal Neues erforschen, neue Märkte erschließen und etablierte Routinen gezielt infrage stellen.
-* **Pfadabhängigkeit**: Erfolge der Vergangenheit führen oft zu einem organisationalen *Lock-in* (Erstarrung). Mit **Simple Rules** (entscheidungsleitenden Heuristiken) können Pfade flexibel aufgebrochen werden.
-
-### 3. Motivation & Self-Determination Theory (Deci & Ryan)
-* **Die 3 psychologischen Grundbedürfnisse für echte Leistungsbereitschaft**:
-  * **1. Autonomie**: Gestaltungsspielräume und Entscheidungsfreiheit bei der Aufgabenbewältigung.
-  * **2. Kompetenzerleben**: Wirksamkeit spüren, fachliche Meisterschaft erlangen und Bestätigung erfahren.
-  * **3. Soziale Eingebundenheit**: Psychologische Sicherheit, gegenseitiges Vertrauen und partnerschaftlicher Dialog.
-* **Crowding-Out-Effekt**: Übermäßige Kontrolle und Mikromanagement verdrängen intrinsische Motivation nachhaltig.
-
-### 4. Leadership Value Chain nach Güttel & Hochleistungsteams
-* **Die 4 Wertschöpfungsdimensionen von Führung**:
-  * **Enforcement**: Durchsetzen verbindlicher Qualitätsstandards und Verbindlichkeiten.
-  * **Execution**: Operative Verlässlichkeit und exzellente Abwicklung im Tagesgeschäft.
-  * **Enhancement**: Zukunftsausrichtung durch Kompetenzaufbau, Lernen und Weiterentwicklung.
-  * **Engagement**: Vertrauenskultur, Sinnerfüllung und psychologische Sicherheit im Team.
-* **Teamentwicklung nach Tuckman**:
-  * \`Forming\` (Orientierung) → \`Storming\` (Konflikte, Rollenaushandlung) → \`Norming\` (Spielregeln) → \`Performing\` (Höchstleistung).
-  * *Klausurfalle*: Bleibt die formale Führungskraft in der Storming-Phase passiv, bilden sich dominante informelle Koalitionen, die spätere Prozesse blockieren.
-
----
-
-### 📊 Visuelles Gesamtmodell der Modul-Architektur
-
-\`\`\`mermaid
-graph TD
-  subgraph 1. Strategischer Wandel & Ambidexterie
-    STR[Strategisches Change Management] --> TLC[Triple Loop of Change: Grundannahmen prüfen]
-    AMB[Organisationale Ambidexterie] --> EXP[Exploration: Innovation & Wandel]
-    AMB --> EFF[Exploitation: Effizienz & Routinen]
-  end
-
-  subgraph 2. Führung nach Güttel: Leadership Value Chain
-    LVC[Leadership Value Chain] --> ENF[Enforcement: Standards setzen]
-    LVC --> EXE[Execution: Operative Exzellenz]
-    LVC --> ENH[Enhancement: Zukunft erschließen]
-    LVC --> ENG[Engagement: Vertrauen & Kultur]
-  end
-
-  subgraph 3. Motivation & Teamentwicklung
-    SDT[Self-Determination Theory: Deci & Ryan] --> AUT[Autonomie: Gestaltungsfreiräume]
-    SDT --> KOM[Kompetenzerleben: Meisterschaft]
-    SDT --> SOC[Soziale Eingebundenheit: Vertrauen]
-    TUK[Tuckman Phasen] --> P1[Forming]
-    P1 --> P2[Storming: Mikropolitik & Reibung]
-    P2 --> P3[Norming: Spielregeln & Kohäsion]
-    P3 --> P4[Performing: Hochleistung]
-  end
-
-  EXP -.-> ENH
-  EFF -.-> EXE
-  ENG -.-> SDT
-  SDT -.-> TUK
-\`\`\`
-
----
-
-### ⚠️ Wichtige Klausurfallen für die Prüfung:
-1. **Reine Strukturkosmetik**: Wenn im Prüfungssachverhalt ein Reorganisationsplan scheitert, liegt es fast immer am Fehlen des Planning Loops oder an verletzter Autonomie (Deci & Ryan), nicht an der Software oder dem Organigramm.
-2. **Exploration vs. Exploitation**: Nicht miteinander verwechseln! Exploitation = Optimierung des Bestehenden; Exploration = Suchen nach Neuem.
-3. **Storming-Phase bei Tuckman**: In Fallstudien immer analysieren, ob sich eine informelle Machtstruktur gegen die formale Führung etabliert hat.`;
-
-    return {
-      answer,
-      sources: [
-        "Vorlesungsbuch (ca. 300k Zeichen)",
-        "Altklausur Leadership (02.12.2025)",
-        "Fall 9 — Der Umbau beginnt vor dem Umbau",
-        "Fall 1: Das verspätete Entwicklungsprojekt",
-        "Fall 3: Anna, die perfekte Werksleiterin",
-      ],
-      examTip: isEnglish
-        ? "Exam Tip: University exams consistently test your ability to link theoretical models (Deci & Ryan, Güttel's LVC, Tuckman) directly to the specific characters and dilemmas described in the case study."
-        : "Klausur-Tipp: Bei Fallstudien-Aufgaben verlangen die Prüfer, dass du die theoretischen Modelle (Deci & Ryan, Güttel Leadership Value Chain, Tuckman) explizit auf die Charaktere und Handlungen des Falls beziehst.",
-      followUpSuggestions: isEnglish
-        ? [
-            "How do I apply the Leadership Value Chain to Case 9?",
-            "What is the exact difference between Exploration and Exploitation?",
-            "What are common mistakes in Tuckman's Storming phase?",
-          ]
-        : [
-            "Wie wende ich die Leadership Value Chain auf Fall 9 (MedTec) an?",
-            "Was ist der genaue Unterschied zwischen Exploration und Exploitation?",
-            "Welche Führungsmaßnahmen helfen in der Storming-Phase nach Tuckman?",
-          ],
-      modelUsed: "StudyHub Knowledge Engine",
-    };
-  }
-
-  // Case C: General Dynamic Course Overview for any other module
-  const topicList =
+  const topicSections =
     moduleTopics.length > 0
-      ? moduleTopics.map((t: { name: string; summary: string | null }, idx: number) => `### ${idx + 1}. ${t.name}\n${t.summary ? `* ${t.summary}\n` : ""}`).join("\n")
+      ? moduleTopics
+          .map(
+            (t: { name: string; summary: string | null }, idx: number) =>
+              `### ${idx + 1}. ${t.name}\n${t.summary ? `* **Themenschwerpunkt**: ${t.summary}\n` : ""}`
+          )
+          .join("\n")
       : isEnglish
-      ? "Module content based on uploaded documents."
-      : "Modulinhalte basierend auf den hochgeladenen Dokumenten.";
+      ? "Module curriculum based on your indexed lecture documents."
+      : "Modulcurriculum basierend auf deinen indexierten Vorlesungsunterlagen.";
 
-  const mermaidNodes = moduleTopics.map((t: { name: string }, idx: number) => `  T${idx}["${t.name.replace(/["()]/g, "")}"]`).join("\n");
+  // Build clean dynamic Mermaid diagram connecting the actual topics of the module
+  const mermaidNodes = moduleTopics
+    .map((t: { name: string }, idx: number) => `  T${idx}["${t.name.replace(/["()]/g, "")}"]`)
+    .join("\n");
   const mermaidEdges =
     moduleTopics.length > 1
       ? moduleTopics
@@ -1733,36 +1484,15 @@ graph TD
       : "";
 
   const answer = isEnglish
-    ? `# 🏛️ Overview of Core Concepts: ${moduleName}
+    ? `# 🏛️ Module Knowledge Synthesis: ${moduleName}
 
-This module covers the following fundamental areas based on your uploaded lecture materials:
+This analysis is dynamically extracted from your uploaded lecture documents and module database records:
 
-${topicList}
-
----
-
-### 📊 Conceptual Architecture Diagram
-
-\`\`\`mermaid
-graph TD
-  MOD["${moduleName.replace(/["()]/g, "")}"] --> T0
-${mermaidNodes}
-${mermaidEdges}
-\`\`\`
+${topicSections}
 
 ---
 
-### Relevant Key Takeaways:
-${sampleQuestions.slice(0, 3).map((q) => `* **${q.questionText}**\n  *Key insight*: ${(q.sampleSolution || "").slice(0, 200)}...`).join("\n\n")}`
-    : `# 🏛️ Überblick über die Kernkonzepte: ${moduleName}
-
-Dieses Modul umfasst anhand deiner hochgeladenen Vorlesungsunterlagen folgende zentrale Themenbereiche:
-
-${topicList}
-
----
-
-### 📊 Visuelles Strukturdiagramm
+### 📊 Dynamic Architecture Diagram
 
 \`\`\`mermaid
 graph TD
@@ -1773,18 +1503,73 @@ ${mermaidEdges}
 
 ---
 
-### Zentrale Prüfungsschwerpunkte aus den Unterlagen:
-${sampleQuestions.slice(0, 3).map((q) => `* **${q.questionText}**\n  *Kernaussage*: ${(q.sampleSolution || "").slice(0, 200)}...`).join("\n\n")}`;
+### Key Excerpts from Your Uploaded Documents:
+${relevantSnippets.join("\n\n") || "No text extracts available."}
+
+---
+
+### Exam Relevance & Verified Practice Questions:
+${
+  sampleQuestions.length > 0
+    ? sampleQuestions
+        .slice(0, 3)
+        .map(
+          (q) =>
+            `* **${q.questionText}**\n  *Sample Solution*: ${(q.sampleSolution || "").slice(0, 250)}...`
+        )
+        .join("\n\n")
+    : "Review uploaded slides for specific exam questions."
+}
+
+> 💡 **Notice**: To enable full AI reasoning with free-form conversational explanations, configure your Gemini API key in the top bar or in .env.`
+    : `# 🏛️ Modul-Wissensübersicht: ${moduleName}
+
+Diese Übersicht wurde dynamisch direkt aus deinen hochgeladenen Vorlesungsunterlagen und Moduldatenbank-Einträgen generiert:
+
+${topicSections}
+
+---
+
+### 📊 Visuelles Strukturdiagramm des Moduls
+
+\`\`\`mermaid
+graph TD
+  MOD["${moduleName.replace(/["()]/g, "")}"]
+${mermaidNodes}
+${mermaidEdges}
+\`\`\`
+
+---
+
+### Relevante Auszüge aus deinen hochgeladenen Dokumenten:
+${relevantSnippets.join("\n\n") || "Keine Textauszüge verfügbar."}
+
+---
+
+### Klausurrelevante Beispielfragen aus den Unterlagen:
+${
+  sampleQuestions.length > 0
+    ? sampleQuestions
+        .slice(0, 3)
+        .map(
+          (q) =>
+            `* **${q.questionText}**\n  *Musterlösung*: ${(q.sampleSolution || "").slice(0, 250)}...`
+        )
+        .join("\n\n")
+    : "Prüfe deine hochgeladenen Folien für detaillierte Klausurfragen."
+}
+
+> 💡 **Hinweis**: Um freies, tiefes KI-Reasoning mit individuellen Erklärungen und dynamischen Graph-Modellen zu nutzen, hinterlege deinen Google Gemini API-Schlüssel oben oder in der \`.env\`-Datei.`;
 
   return {
     answer,
     sources: sources.slice(0, 4),
     examTip: isEnglish
-      ? "Exam Tip: Focus heavily on definitions, underlying assumptions, and structural trade-offs in your written exam."
-      : "Klausur-Tipp: Achte in der Klausur besonders auf präzise Definitionen, Vor- und Nachteile sowie die praktische Anwendung auf Beispielfälle.",
+      ? "Exam Tip: Study the core definitions and relational differences across your module's uploaded topics."
+      : "Klausur-Tipp: Achte in der Prüfung besonders auf die Unterschiede und Wechselwirkungen zwischen den Themengebieten dieses Moduls.",
     followUpSuggestions: isEnglish
-      ? ["Explain this topic with a vivid everyday analogy", "What are typical exam pitfalls here?"]
-      : ["Erkläre mir ein schwieriges Thema mit einer Alltags-Analogie", "Welche typischen Klausurfallen gibt es hier?"],
-    modelUsed: isEnglish ? "Local Knowledge Engine" : "Lokale Wissens-Engine",
+      ? ["Explain the first topic in more detail", "What are typical exam pitfalls here?"]
+      : ["Erkläre mir das erste Thema im Detail", "Welche Klausurfallen gibt es hier?"],
+    modelUsed: isEnglish ? "Dynamic Module Knowledge Engine" : "Dynamische Modul-Wissens-Engine",
   };
 }
