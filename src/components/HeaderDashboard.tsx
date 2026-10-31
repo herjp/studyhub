@@ -17,11 +17,13 @@ import {
   User,
   LogIn,
   LogOut,
+  HelpCircle,
 } from "lucide-react";
 import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
 import { EctsCalculatorModal } from "./EctsCalculatorModal";
 import { AuthModal } from "./AuthModal";
+import { OnboardingModal } from "./OnboardingModal";
 import { Portal } from "./Portal";
 
 interface StatsData {
@@ -55,6 +57,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
   const [darkMode, setDarkMode] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   const fetchCurrentUser = async () => {
     try {
@@ -106,6 +109,12 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
 
     const isDark = document.documentElement.classList.contains("dark");
     setDarkMode(isDark);
+
+    // Check if onboarding tour has been completed
+    const onboardingSeen = localStorage.getItem("studyhub_onboarding_seen");
+    if (!onboardingSeen) {
+      setShowOnboarding(true);
+    }
   }, []);
 
   const handleSaveSettings = () => {
@@ -255,6 +264,15 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
               className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
             >
               <Settings className="w-4 h-4" />
+            </button>
+
+            {/* Help / Onboarding Tour Button */}
+            <button
+              onClick={() => setShowOnboarding(true)}
+              title={lang === "de" ? "Kurzanleitung & App-Tour öffnen" : "Open App Tour & Guide"}
+              className="p-2 text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-transparent hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors"
+            >
+              <HelpCircle className="w-4 h-4" />
             </button>
 
             {/* User Account / Profile / Login - GANZ RECHTS */}
@@ -534,6 +552,12 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
           fetchStats();
           if (onStatsUpdated) onStatsUpdated();
         }}
+      />
+
+      {/* Interactive Onboarding Tour Modal */}
+      <OnboardingModal
+        isOpen={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
       />
     </header>
   );

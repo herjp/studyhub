@@ -38,7 +38,8 @@ export default function HomePage() {
 
         // Auto select active semester or first semester
         if (data.length > 0) {
-          if (!selectedSemesterId) {
+          const exists = data.some((s: SemesterType) => s.id === selectedSemesterId);
+          if (!selectedSemesterId || !exists) {
             const active = data.find((s: SemesterType) => s.isActive);
             setSelectedSemesterId(active ? active.id : data[0].id);
           }

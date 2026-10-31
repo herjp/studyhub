@@ -34,9 +34,13 @@ export async function GET() {
     const gpa = gradedEctsSum > 0 ? Number((weightedGradeSum / gradedEctsSum).toFixed(2)) : null;
 
     // Count questions and progress
-    const totalQuestions = await prisma.question.count();
+    const questionWhere = user ? { module: { semester: { userId: user.id } } } : {};
+    const totalQuestions = await prisma.question.count({ where: questionWhere });
     const answeredCount = await prisma.questionProgress.count({
-      where: { lastAnswerDate: { not: null } },
+      where: {
+        lastAnswerDate: { not: null },
+        ...(user ? { question: { module: { semester: { userId: user.id } } } } : {}),
+      },
     });
 
     return NextResponse.json({

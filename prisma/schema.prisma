@@ -9,13 +9,18 @@ generator client {
 }
 
 model User {
-  id        String     @id @default(cuid())
-  email     String     @unique
-  name      String?
-  password  String
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  semesters Semester[]
+  id                String     @id @default(cuid())
+  email             String     @unique
+  name              String?
+  password          String
+  twoFactorEnabled  Boolean    @default(false)
+  twoFactorCode     String?
+  twoFactorExpires  DateTime?
+  resetToken        String?
+  resetExpires      DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  semesters         Semester[]
 }
 
 model Semester {

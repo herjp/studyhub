@@ -33,6 +33,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check if Two-Factor Authentication (2FA) is enabled for this user
+    if (user.twoFactorEnabled) {
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          twoFactorCode: code,
+          twoFactorExpires: expires,
+        },
+      });
+
+      return NextResponse.json({
+        requires2FA: true,
+        email: user.email,
+        devCode: code,
+        message: "2-Faktor-Authentifizierung erforderlich. Bitte gib den 6-stelligen Code ein.",
+      });
+    }
+
     const sessionUser = { id: user.id, email: user.email, name: user.name };
     const token = await createSessionToken(sessionUser);
 

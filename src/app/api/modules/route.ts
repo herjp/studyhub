@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     const semesterId = searchParams.get("semesterId");
 
     const whereClause: any = semesterId ? { semesterId } : {};
-    if (!semesterId && user) {
+    if (user) {
       whereClause.semester = { userId: user.id };
     }
 
