@@ -1,4 +1,5 @@
 import { searchModuleDocuments, getPastExamStyleContext } from "./rag";
+import { isValidPdfText } from "./pdf-extractor";
 
 export interface EvaluationResult {
   score: number;
@@ -71,6 +72,106 @@ export function extractJSONFromText(text: string): any {
   throw new Error(`Konnte kein valides JSON aus der Modell-Antwort parsen: ${clean.slice(0, 100)}...`);
 }
 
+// Cache available models per API key for 15 minutes to avoid redundant list calls
+const geminiModelCache = new Map<string, { models: string[]; timestamp: number }>();
+
+export async function getAvailableGeminiModels(apiKey: string): Promise<string[]> {
+  const cached = geminiModelCache.get(apiKey);
+  if (cached && Date.now() - cached.timestamp < 1000 * 60 * 15) {
+    return cached.models;
+  }
+
+  try {
+    const listRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+      { method: "GET" }
+    );
+    if (listRes.ok) {
+      const data = await listRes.json();
+      if (Array.isArray(data.models)) {
+        const supported = data.models
+          .filter(
+            (m: any) =>
+              Array.isArray(m.supportedGenerationMethods) &&
+              m.supportedGenerationMethods.includes("generateContent")
+          )
+          .map((m: any) => m.name.replace(/^models\//, ""));
+
+        if (supported.length > 0) {
+          geminiModelCache.set(apiKey, { models: supported, timestamp: Date.now() });
+          return supported;
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn("Could not dynamically list Gemini models:", err.message);
+  }
+
+  return [];
+}
+
+/**
+ * Resolves the optimal Gemini models to try in descending order of capability.
+ * Prioritizes models verified to exist on the user's specific API key.
+ */
+export async function resolveGeminiModelsToTry(apiKey: string, preferredModel?: string): Promise<string[]> {
+  const dynamicModels = await getAvailableGeminiModels(apiKey);
+
+  // Modern Gemini models supported for generateContent
+  const modernPreferred = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-3.8-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.1-flash-lite",
+  ];
+
+  const modelsToTry: string[] = [];
+
+  // Exclude obsolete deprecated models that return 404
+  if (
+    preferredModel &&
+    !preferredModel.includes("1.5") &&
+    !preferredModel.includes("2.0-flash") &&
+    !preferredModel.includes("1.0")
+  ) {
+    modelsToTry.push(preferredModel);
+  }
+
+  if (dynamicModels.length > 0) {
+    // 1. Pick preferred models that exist in dynamic list
+    for (const m of modernPreferred) {
+      if (dynamicModels.includes(m) && !modelsToTry.includes(m)) {
+        modelsToTry.push(m);
+      }
+    }
+    // 2. Add other supported generateContent models from the API key
+    for (const d of dynamicModels) {
+      if (
+        !modelsToTry.includes(d) &&
+        !d.includes("1.5") &&
+        !d.includes("2.0-flash") &&
+        !d.includes("embedding") &&
+        !d.includes("tts") &&
+        !d.includes("image")
+      ) {
+        modelsToTry.push(d);
+      }
+    }
+  } else {
+    // Fallback if dynamic listing failed
+    for (const m of modernPreferred) {
+      if (!modelsToTry.includes(m)) {
+        modelsToTry.push(m);
+      }
+    }
+  }
+
+  return modelsToTry;
+}
+
 /**
  * Universal call to Google Gemini REST API.
  */
@@ -80,11 +181,7 @@ export async function callGeminiJSON(
   systemInstruction?: string,
   preferredModel?: string
 ): Promise<{ parsed: any; modelUsed: string }> {
-  const models = preferredModel
-    ? [preferredModel, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
-    : ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.5-flash-lite", "gemini-1.5-flash"];
-
-  const uniqueModels = Array.from(new Set(models));
+  const uniqueModels = await resolveGeminiModelsToTry(apiKey, preferredModel);
   let lastError: any = null;
 
   for (const model of uniqueModels) {
@@ -563,6 +660,13 @@ export async function generateQuestionsWithAI(params: {
     throw new Error("Kein Text in den Vorlesungsunterlagen gefunden. Bitte lade Unterlagen mit lesbarem Text (PDF oder Bilder) hoch.");
   }
 
+  // Validate that document text is genuine readable words, not binary garbage from corrupted streams
+  if (!isValidPdfText(contextSnippet)) {
+    throw new Error(
+      "Die hinterlegten Unterlagen enthalten noch keinen lesbaren Text (möglicherweise reine Scans/Fotos oder unleserliche Zeichen). Bitte lade das Dokument erneut hoch, damit die KI-Texterkennung (Gemini Vision OCR) den Inhalt automatisch erfasst."
+    );
+  }
+
   const sys = `Du bist ein angesehener Universitätsprofessor und Klausurersteller.
 WICHTIGSTE VORGABE: Erstelle Klausurfragen AUSSCHLIESSLICH und STRENG auf Basis der unten bereitgestellten Vorlesungsunterlagen.
 Erfinde KEINE Fragen zu anderen Themengebieten, die nicht im Skript vorkommen!
@@ -650,13 +754,7 @@ Extrahiere:
 3. Wichtige Fachtermini und Kernaussagen
 Formatiere das Ergebnis in klarem, strukturiertem Text/Markdown.`;
 
-  const models = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-1.5-pro",
-    "gemini-2.5-flash-lite",
-    "gemini-1.5-flash",
-  ];
+  const models = await resolveGeminiModelsToTry(activeKey);
   let lastError: any = null;
 
   for (const model of models) {

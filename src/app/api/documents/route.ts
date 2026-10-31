@@ -209,7 +209,7 @@ export async function PUT(req: Request) {
     }
 
     const body = await req.json();
-    const { id, title, category, isPastExam } = body;
+    const { id, title, category, isPastExam, parsedText } = body;
 
     const trimmedTitle = typeof title === "string" ? title.trim() : "";
     if (!id || !trimmedTitle) {
@@ -232,14 +232,20 @@ export async function PUT(req: Request) {
     }
 
     const safeTitle = sanitizePostgresString(trimmedTitle);
+    const updateData: any = {
+      title: safeTitle,
+      category: isPastExam
+        ? DocumentCategory.EXAM_PAST
+        : (category as DocumentCategory) || doc.category,
+    };
+
+    if (typeof parsedText === "string") {
+      updateData.parsedText = sanitizePostgresString(parsedText);
+    }
+
     const updated = await prisma.document.update({
       where: { id },
-      data: {
-        title: safeTitle,
-        category: isPastExam
-          ? DocumentCategory.EXAM_PAST
-          : (category as DocumentCategory) || doc.category,
-      },
+      data: updateData,
     });
 
     return NextResponse.json(updated);

@@ -109,6 +109,10 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
         localStorage.setItem("studyhub_ai_status", "connected");
         localStorage.setItem(`studyhub_api_key_${aiProvider}`, activeKey);
         localStorage.setItem("studyhub_api_key", activeKey);
+        if (data.model) {
+          localStorage.setItem(`studyhub_ai_model_${aiProvider}`, data.model);
+          localStorage.setItem("studyhub_ai_model", data.model);
+        }
       } else {
         setTestStatus({
           loading: false,

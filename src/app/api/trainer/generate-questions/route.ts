@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { QuestionType } from "@prisma/client";
 import { generateQuestionsWithAI } from "@/lib/ai-service";
 import { getCurrentUser } from "@/lib/auth";
+import { isValidPdfText } from "@/lib/pdf-extractor";
 
 export async function POST(req: Request) {
   try {
@@ -32,17 +33,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Modul nicht gefunden oder nicht autorisiert" }, { status: 404 });
     }
 
-    // 2. Check if documents exist in this module with parsed text
+    // 2. Check if documents exist in this module with valid, readable parsed text
     const validDocs = mod.documents.filter(
-      (d) => d.parsedText && d.parsedText.trim().length > 20
+      (d) => d.parsedText && d.parsedText.trim().length > 20 && isValidPdfText(d.parsedText)
     );
 
     if (validDocs.length === 0) {
+      const hasAnyDocs = mod.documents.length > 0;
       return NextResponse.json(
         {
-          error:
-            "Keine Vorlesungsunterlagen vorhanden. Bitte lade im Reiter 'Vorlesungsmaterialien & Unterlagen' zuerst Vorlesungsfolien (PDF) oder Bilder (PNG/JPG) hoch. Fragen werden ausschließlich aus deinen persönlichen Modul-Unterlagen generiert.",
-          code: "NO_DOCUMENTS",
+          error: hasAnyDocs
+            ? "In deinen hinterlegten Unterlagen wurde noch kein lesbarer Text gefunden (die vorhandenen Dateien enthalten anscheinend unleserliche Scans, Fotos oder binäre Zeichen). Bitte lade das Dokument erneut hoch oder passe den Text im Dokumenten-Viewer an, damit die KI-Texterkennung (Gemini Vision) den Text erfasst."
+            : "Keine Vorlesungsunterlagen vorhanden. Bitte lade im Reiter 'Vorlesungsmaterialien & Unterlagen' zuerst Vorlesungsfolien (PDF) oder Bilder (PNG/JPG) hoch. Fragen werden ausschließlich aus deinen persönlichen Modul-Unterlagen generiert.",
+          code: hasAnyDocs ? "NO_READABLE_TEXT" : "NO_DOCUMENTS",
         },
         { status: 400 }
       );

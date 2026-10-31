@@ -57,19 +57,21 @@ export async function POST(req: Request) {
         console.warn("Failed to fetch model list from Gemini:", listErr.message);
       }
 
-      // Priority list of models to test
+      // Priority list of modern models to test
       const preferredModels = [
         "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-pro",
         "gemini-2.5-flash-lite",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-pro-latest",
+        "gemini-2.5-pro",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.1-flash-lite",
       ];
 
       const modelsToTry: string[] = [];
-      if (model) modelsToTry.push(model);
+      if (model && !model.includes("1.5") && !model.includes("2.0-flash")) {
+        modelsToTry.push(model);
+      }
 
       for (const p of preferredModels) {
         if (availableModels.length === 0 || availableModels.includes(p)) {
@@ -77,13 +79,22 @@ export async function POST(req: Request) {
         }
       }
 
-      // If availableModels has other generateContent models, add them too
+      // If availableModels has other generateContent models, add them too (excluding dead models)
       for (const a of availableModels) {
-        if (!modelsToTry.includes(a)) modelsToTry.push(a);
+        if (
+          !modelsToTry.includes(a) &&
+          !a.includes("1.5") &&
+          !a.includes("2.0-flash") &&
+          !a.includes("embedding") &&
+          !a.includes("tts") &&
+          !a.includes("image")
+        ) {
+          modelsToTry.push(a);
+        }
       }
 
       if (modelsToTry.length === 0) {
-        modelsToTry.push("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash");
+        modelsToTry.push("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.8-flash");
       }
 
       let lastErrorMsg = "";

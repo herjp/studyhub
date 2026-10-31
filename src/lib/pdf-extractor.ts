@@ -14,20 +14,40 @@ export function sanitizePostgresString(str: string): string {
 
 /**
  * Validates whether an extracted string is genuine human-readable text
- * rather than random binary image data or noise.
+ * (in German, English, etc.) rather than random binary image data,
+ * font glyph index noise, or raw PostScript stream remnants.
  */
 export function isValidPdfText(text: string): boolean {
-  if (!text || text.trim().length < 25) return false;
-  const clean = text.replace(/\s+/g, "");
-  if (clean.length < 15) return false;
+  if (!text || text.trim().length < 40) return false;
+  const trimmed = text.trim();
 
-  // Count printable characters (letters, numbers, common German/English punctuation, symbols)
-  const printableMatch = clean.match(/[\p{L}\p{N}\p{P}\p{S}]/gu);
-  if (!printableMatch) return false;
+  // 1. Check for dense non-ASCII high-byte garbage (e.g. ¹ºµÆÇÂ¿À»±²’“Ž...)
+  // In normal German/English text, high Latin-1 / weird symbols should not exceed 12%
+  const highByteGarbageMatch = trimmed.match(/[\u007F-\u009F\u00A0-\u00BF\u00D7\u00F7\u0250-\uFFFF]/g);
+  if (highByteGarbageMatch && highByteGarbageMatch.length / trimmed.length > 0.12) {
+    return false;
+  }
 
-  const ratio = printableMatch.length / clean.length;
-  // Real text must be at least 75% printable glyphs
-  return ratio >= 0.75;
+  // 2. Count genuine pronounceable words separated by whitespace
+  const rawWords = trimmed.split(/\s+/);
+  if (rawWords.length < 8) return false;
+
+  let validWordChars = 0;
+  let validWordCount = 0;
+
+  for (const w of rawWords) {
+    const clean = w.replace(/^[.,:;!?"'()\[\]{}«»„“”\-_/\\]+|[.,:;!?"'()\[\]{}«»„“”\-_/\\]+$/g, "");
+    if (/^[a-zA-ZäöüÄÖÜß]{2,35}$/.test(clean)) {
+      if (/[aeiouyäöüAEIOUYÄÖÜ]/.test(clean)) {
+        validWordChars += clean.length;
+        validWordCount++;
+      }
+    }
+  }
+
+  const wordRatio = validWordChars / trimmed.length;
+  // Must have at least 8 real words and real words must make up at least 30% of character content
+  return validWordCount >= 8 && wordRatio >= 0.30;
 }
 
 /**
@@ -132,8 +152,8 @@ export function extractPdfTextFromArrayBuffer(arrayBuffer: ArrayBuffer): string 
         for (const block of btBlocks) {
           let blockText = "";
 
-          // 1. Match literal string operator: (text) Tj or ' or "
-          const singleTjRegex = /\(([\s\S]*?)\)\s*(?:Tj|'|")/g;
+          // 1. Match literal string operator: (text) Tj
+          const singleTjRegex = /\(([^()]{0,2000})\)\s*Tj\b/g;
           let tjMatch: RegExpExecArray | null;
           while ((tjMatch = singleTjRegex.exec(block)) !== null) {
             const decoded = decodePdfLiteralString(tjMatch[1]);
@@ -141,7 +161,7 @@ export function extractPdfTextFromArrayBuffer(arrayBuffer: ArrayBuffer): string 
           }
 
           // 2. Match hex string operator: <hex> Tj
-          const hexTjRegex = /<([0-9a-fA-F\s]+)>\s*(?:Tj|'|")/g;
+          const hexTjRegex = /<([0-9a-fA-F\s]{1,2000})>\s*Tj\b/g;
           let hexMatch: RegExpExecArray | null;
           while ((hexMatch = hexTjRegex.exec(block)) !== null) {
             const decoded = decodePdfHexString(hexMatch[1]);
@@ -149,11 +169,11 @@ export function extractPdfTextFromArrayBuffer(arrayBuffer: ArrayBuffer): string 
           }
 
           // 3. Match array string operator: [(t) 10 (e) 20 (x)] TJ
-          const arrayTjRegex = /\[([\s\S]*?)\]\s*TJ/g;
+          const arrayTjRegex = /\[([^\[\]]{1,15000})\]\s*TJ\b/g;
           let arrMatch: RegExpExecArray | null;
           while ((arrMatch = arrayTjRegex.exec(block)) !== null) {
             const arrayInner = arrMatch[1];
-            const tokenRegex = /\(([\s\S]*?)\)|<([0-9a-fA-F\s]+)>/g;
+            const tokenRegex = /\(([^()]{0,1000})\)|<([0-9a-fA-F\s]{1,1000})>/g;
             let tokenMatch: RegExpExecArray | null;
             let innerText = "";
             while ((tokenMatch = tokenRegex.exec(arrayInner)) !== null) {

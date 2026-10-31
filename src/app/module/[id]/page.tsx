@@ -45,7 +45,7 @@ import { EditQuestionDialog } from "@/components/EditQuestionDialog";
 import { Portal } from "@/components/Portal";
 import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
-import { extractPdfTextFromArrayBuffer } from "@/lib/pdf-extractor";
+import { extractPdfTextFromArrayBuffer, isValidPdfText } from "@/lib/pdf-extractor";
 
 /**
  * Automatically downsizes and compresses large smartphone / high-res photos
@@ -139,6 +139,42 @@ function ModuleDetailContent() {
   const [previewDoc, setPreviewDoc] = useState<any>(null);
   const [editingDoc, setEditingDoc] = useState<{ id: string; title: string; category?: string } | null>(null);
   const [isSavingDoc, setIsSavingDoc] = useState(false);
+  const [isEditingDocContent, setIsEditingDocContent] = useState(false);
+  const [editDocContentText, setEditDocContentText] = useState("");
+  const [isSavingDocContent, setIsSavingDocContent] = useState(false);
+
+  const handleSaveDocContent = async () => {
+    if (!previewDoc) return;
+    setIsSavingDocContent(true);
+    try {
+      const res = await fetch("/api/documents", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: previewDoc.id,
+          title: previewDoc.title,
+          category: previewDoc.category,
+          parsedText: editDocContentText,
+        }),
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        setPreviewDoc((prev: any) => ({ ...prev, parsedText: updated.parsedText }));
+        setModuleData((prev: any) => ({
+          ...prev,
+          documents: prev.documents.map((d: any) =>
+            d.id === updated.id ? { ...d, parsedText: updated.parsedText } : d
+          ),
+        }));
+        setIsEditingDocContent(false);
+      }
+    } catch (err) {
+      console.error("Failed to update document text:", err);
+    } finally {
+      setIsSavingDocContent(false);
+    }
+  };
   const [docSearchTerm, setDocSearchTerm] = useState("");
   const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<{
@@ -525,6 +561,9 @@ function ModuleDetailContent() {
       const storedKey = typeof window !== "undefined" 
         ? (localStorage.getItem(`studyhub_api_key_${storedProvider}`) || localStorage.getItem("studyhub_api_key") || undefined) 
         : undefined;
+      const storedModel = typeof window !== "undefined"
+        ? (localStorage.getItem(`studyhub_ai_model_${storedProvider}`) || localStorage.getItem("studyhub_ai_model") || undefined)
+        : undefined;
 
       const res = await fetch("/api/trainer/generate-questions", {
         method: "POST",
@@ -535,6 +574,7 @@ function ModuleDetailContent() {
           count: 5,
           apiKey: storedKey,
           provider: storedProvider,
+          model: storedModel,
         }),
       });
 
@@ -590,6 +630,9 @@ function ModuleDetailContent() {
       const storedKey = typeof window !== "undefined" 
         ? (localStorage.getItem(`studyhub_api_key_${storedProvider}`) || localStorage.getItem("studyhub_api_key") || undefined) 
         : undefined;
+      const storedModel = typeof window !== "undefined"
+        ? (localStorage.getItem(`studyhub_ai_model_${storedProvider}`) || localStorage.getItem("studyhub_ai_model") || undefined)
+        : undefined;
 
       const res = await fetch("/api/trainer/generate-questions", {
         method: "POST",
@@ -600,6 +643,7 @@ function ModuleDetailContent() {
           count: 5,
           apiKey: storedKey,
           provider: storedProvider,
+          model: storedModel,
         }),
       });
 
@@ -1141,7 +1185,11 @@ function ModuleDetailContent() {
                         className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 flex items-start justify-between gap-4 shadow-sm hover:shadow transition-all"
                       >
                         <div
-                          onClick={() => setPreviewDoc(doc)}
+                          onClick={() => {
+                            setPreviewDoc(doc);
+                            setIsEditingDocContent(false);
+                            setEditDocContentText(doc.parsedText || "");
+                          }}
                           className="flex items-start gap-3 cursor-pointer flex-1 min-w-0"
                         >
                           <div
@@ -1174,10 +1222,20 @@ function ModuleDetailContent() {
                             </div>
 
                             <div className="flex items-center gap-3 text-xs text-slate-400">
-                              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                {t.indexedBadge}
-                              </span>
+                              {isValidPdfText(doc.parsedText) ? (
+                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  {t.indexedBadge}
+                                </span>
+                              ) : (
+                                <span
+                                  className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium cursor-pointer"
+                                  title="Enthält unleserliche Steuerzeichen oder Scan"
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                                  {lang === "de" ? "⚠️ Text prüfen / Scan" : "⚠️ Incomplete text"}
+                                </span>
+                              )}
                               <span>•</span>
                               <span>{new Date(doc.createdAt).toLocaleDateString(lang === "de" ? "de-DE" : "en-US")}</span>
                             </div>
@@ -1195,7 +1253,11 @@ function ModuleDetailContent() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setPreviewDoc(doc)}
+                            onClick={() => {
+                              setPreviewDoc(doc);
+                              setIsEditingDocContent(false);
+                              setEditDocContentText(doc.parsedText || "");
+                            }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                             title={lang === "de" ? "Dokument ansehen & Text prüfen" : "View document & inspect text"}
                           >
@@ -1255,6 +1317,23 @@ function ModuleDetailContent() {
                       </button>
                     </div>
 
+                    {/* Warning if unreadable content */}
+                    {!isValidPdfText(previewDoc.parsedText) && !isEditingDocContent && (
+                      <div className="mb-3 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2.5 animate-in fade-in">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <p className="font-bold">
+                            {lang === "de" ? "⚠️ Unleserlicher Inhalt oder Scan erkannt" : "⚠️ Incomplete text or scan detected"}
+                          </p>
+                          <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-normal">
+                            {lang === "de"
+                              ? "Dieser Text enthält scheinbar unleserliche Steuerzeichen oder ist ein Scan ohne digitalen Text-Layer. Die KI benötigt echten Vorlesungstext, um Prüfungsfragen zu erstellen. Klicke unten auf 'Text bearbeiten', um den Text manuell einzutragen oder zu korrigieren, oder lade das Dokument erneut hoch."
+                              : "This document contains unreadable characters. Click 'Edit text' below to fix or paste readable text."}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Stats & Search Toolbar */}
                     <div className="flex items-center justify-between gap-2 mb-3 flex-wrap text-xs">
                       <div className="flex items-center gap-2 text-slate-500 text-[11px]">
@@ -1262,62 +1341,129 @@ function ModuleDetailContent() {
                           {previewDoc.parsedText ? `${previewDoc.parsedText.length.toLocaleString()} Zeichen` : "0 Zeichen"}
                         </span>
                         <span>•</span>
-                        <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> {t.indexedBadge}
-                        </span>
+                        {isValidPdfText(previewDoc.parsedText) ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> {t.indexedBadge}
+                          </span>
+                        ) : (
+                          <span className="text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5" /> {lang === "de" ? "Text unvollständig" : "Incomplete"}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <div className="relative">
-                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                          <input
-                            type="text"
-                            placeholder={lang === "de" ? "Im Text suchen..." : "Search text..."}
-                            value={docSearchTerm}
-                            onChange={(e) => setDocSearchTerm(e.target.value)}
-                            className="pl-8 pr-2.5 py-1 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 w-36 sm:w-48"
-                          />
-                        </div>
+                        {!isEditingDocContent && (
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder={lang === "de" ? "Im Text suchen..." : "Search text..."}
+                              value={docSearchTerm}
+                              onChange={(e) => setDocSearchTerm(e.target.value)}
+                              className="pl-8 pr-2.5 py-1 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 w-36 sm:w-44"
+                            />
+                          </div>
+                        )}
 
                         <button
                           type="button"
                           onClick={() => {
-                            if (previewDoc.parsedText) {
-                              navigator.clipboard.writeText(previewDoc.parsedText);
-                              setCopiedDocId(previewDoc.id);
-                              setTimeout(() => setCopiedDocId(null), 2000);
-                            }
+                            setIsEditingDocContent(!isEditingDocContent);
+                            setEditDocContentText(previewDoc.parsedText || "");
                           }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 transition-colors"
                         >
-                          {copiedDocId === previewDoc.id ? (
-                            <>
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              <span>{lang === "de" ? "Kopiert!" : "Copied!"}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3 h-3" />
-                              <span>{lang === "de" ? "Kopieren" : "Copy"}</span>
-                            </>
-                          )}
+                          <Edit2 className="w-3 h-3" />
+                          <span>{isEditingDocContent ? (lang === "de" ? "Ansicht" : "View") : (lang === "de" ? "Text bearbeiten" : "Edit text")}</span>
                         </button>
+
+                        {!isEditingDocContent && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (previewDoc.parsedText) {
+                                navigator.clipboard.writeText(previewDoc.parsedText);
+                                setCopiedDocId(previewDoc.id);
+                                setTimeout(() => setCopiedDocId(null), 2000);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors"
+                          >
+                            {copiedDocId === previewDoc.id ? (
+                              <>
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span>{lang === "de" ? "Kopiert!" : "Copied!"}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                <span>{lang === "de" ? "Kopieren" : "Copy"}</span>
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     </div>
 
-                    {/* Text View */}
-                    <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
-                      <pre className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-line font-mono leading-relaxed select-text">
-                        {previewDoc.parsedText
-                          ? (docSearchTerm.trim()
-                              ? previewDoc.parsedText
-                                  .split("\n")
-                                  .filter((line: string) => line.toLowerCase().includes(docSearchTerm.toLowerCase()))
-                                  .join("\n") || `Keine Treffer für "${docSearchTerm}" gefunden.`
-                              : previewDoc.parsedText)
-                          : "Kein extrahierter Text vorhanden."}
-                      </pre>
-                    </div>
+                    {/* Text View or Editable Textarea */}
+                    {isEditingDocContent ? (
+                      <div className="flex-1 flex flex-col bg-white dark:bg-slate-800 p-3 rounded-2xl border border-indigo-200 dark:border-indigo-800 min-h-[320px]">
+                        <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-100 dark:border-slate-700 text-xs text-slate-500">
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">
+                            {lang === "de" ? "Vorlesungstext / Notizen bearbeiten:" : "Edit lecture text / notes:"}
+                          </span>
+                          <span>{editDocContentText.length.toLocaleString()} Zeichen</span>
+                        </div>
+                        <textarea
+                          value={editDocContentText}
+                          onChange={(e) => setEditDocContentText(e.target.value)}
+                          placeholder={lang === "de" ? "Füge hier den Vorlesungs- oder Klausurtext ein..." : "Paste lecture or exam text here..."}
+                          className="flex-1 w-full p-2.5 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          rows={14}
+                        />
+                        <div className="flex items-center justify-end gap-2 pt-2.5 mt-2 border-t border-slate-100 dark:border-slate-700">
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingDocContent(false)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300"
+                          >
+                            {lang === "de" ? "Abbrechen" : "Cancel"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSavingDocContent}
+                            onClick={handleSaveDocContent}
+                            className="px-4 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60 flex items-center gap-1.5 shadow-sm"
+                          >
+                            {isSavingDocContent ? (
+                              <>
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                <span>{lang === "de" ? "Wird gespeichert..." : "Saving..."}</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>{lang === "de" ? "Änderungen speichern" : "Save changes"}</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                        <pre className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-line font-mono leading-relaxed select-text">
+                          {previewDoc.parsedText
+                            ? (docSearchTerm.trim()
+                                ? previewDoc.parsedText
+                                    .split("\n")
+                                    .filter((line: string) => line.toLowerCase().includes(docSearchTerm.toLowerCase()))
+                                    .join("\n") || `Keine Treffer für "${docSearchTerm}" gefunden.`
+                                : previewDoc.parsedText)
+                            : "Kein extrahierter Text vorhanden."}
+                        </pre>
+                      </div>
+                    )}
 
                     {/* Footer */}
                     <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
