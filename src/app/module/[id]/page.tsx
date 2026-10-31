@@ -42,10 +42,16 @@ import { ExamSessionModal, QuizQuestion } from "@/components/ExamSessionModal";
 import { TopicSummaryModal } from "@/components/TopicSummaryModal";
 import { EditModuleDialog } from "@/components/EditModuleDialog";
 import { EditQuestionDialog } from "@/components/EditQuestionDialog";
+import { AuthModal } from "@/components/AuthModal";
 import { Portal } from "@/components/Portal";
 import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
-import { extractPdfTextFromArrayBuffer, extractPdfTextWithPdfJs, isValidPdfText } from "@/lib/pdf-extractor";
+import {
+  extractPdfTextFromArrayBuffer,
+  extractPdfTextWithPdfJs,
+  renderPdfToCompressedJpeg,
+  isValidPdfText,
+} from "@/lib/pdf-extractor";
 
 /**
  * Automatically downsizes and compresses large smartphone / high-res photos
@@ -59,7 +65,7 @@ async function compressImageForUpload(
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const MAX_DIM = 2048;
+      const MAX_DIM = 1600;
       let width = img.width;
       let height = img.height;
 
@@ -89,12 +95,9 @@ async function compressImageForUpload(
         return;
       }
       ctx.drawImage(img, 0, 0, width, height);
-      const compressedBase64 = canvas.toDataURL("image/jpeg", 0.85);
+      const compressedBase64 = canvas.toDataURL("image/jpeg", 0.80);
       const approxBytes = Math.round((compressedBase64.length * 3) / 4);
-      const sizeStr =
-        approxBytes > 1024 * 1024
-          ? `${(approxBytes / (1024 * 1024)).toFixed(1)} MB`
-          : `${Math.round(approxBytes / 1024)} KB`;
+      const sizeStr = `${Math.round(approxBytes / 1024)} KB (Foto komprimiert)`;
       resolve({ base64: compressedBase64, mimeType: "image/jpeg", sizeStr });
     };
     img.onerror = () => {
@@ -293,10 +296,43 @@ function ModuleDetailContent() {
       }
     }
 
-    // 3. Base64 handling:
-    // - If we extracted real digital text, we omit base64 (keeps payload tiny < 50 KB, uploads instantly)
-    // - If it is a scanned photo-PDF without embedded text, we load base64 so Gemini Vision OCR can read the pages
-    if (!clientText && file.size <= 4.5 * 1024 * 1024) {
+    // 3. If genuine digital text was extracted:
+    if (clientText) {
+      setUploadedFile({
+        file,
+        name: file.name,
+        sizeStr,
+        base64: undefined,
+        mimeType: file.type || "application/pdf",
+        clientExtractedText: clientText,
+      });
+      return;
+    }
+
+    // 4. If PDF has NO digital text (it is a photo/scan PDF like Altklausur):
+    // Use PDF.js canvas rendering to compress pages into a crisp, high-res JPEG (~200 KB)
+    // This eliminates Vercel's 4.5 MB payload limit (413) and avoids OCR timeout (504).
+    if (isPdf) {
+      try {
+        const rendered = await renderPdfToCompressedJpeg(file);
+        if (rendered && rendered.base64) {
+          setUploadedFile({
+            file,
+            name: file.name,
+            sizeStr: rendered.sizeStr,
+            base64: rendered.base64,
+            mimeType: rendered.mimeType,
+            clientExtractedText: undefined,
+          });
+          return;
+        }
+      } catch (renderErr) {
+        console.warn("Render PDF to compressed JPEG error:", renderErr);
+      }
+    }
+
+    // 5. Fallback for raw files under 3 MB
+    if (file.size <= 3 * 1024 * 1024) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const base64 = e.target?.result as string;
@@ -317,7 +353,7 @@ function ModuleDetailContent() {
         sizeStr,
         base64: undefined,
         mimeType: file.type || "application/pdf",
-        clientExtractedText: clientText || undefined,
+        clientExtractedText: undefined,
       });
     }
   };
@@ -389,8 +425,27 @@ function ModuleDetailContent() {
     }
   };
 
+  // User session state
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  const fetchCurrentUser = async () => {
+    try {
+      const res = await fetch("/api/auth/me");
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentUser(data.user);
+      } else {
+        setCurrentUser(null);
+      }
+    } catch {
+      setCurrentUser(null);
+    }
+  };
+
   useEffect(() => {
     fetchModule();
+    fetchCurrentUser();
   }, [moduleId]);
 
   // Handle Document Upload
@@ -451,7 +506,37 @@ function ModuleDetailContent() {
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      let errorMsg = "";
+      let data: any = {};
+      try {
+        const rawText = await res.text();
+        try {
+          data = JSON.parse(rawText);
+          if (data.error) errorMsg = data.error;
+        } catch {
+          if (res.status === 413) {
+            errorMsg = lang === "de"
+              ? "Die Datei ist zu groß für den Upload (> 4.5 MB). Bitte wähle eine kleinere Bilddatei oder teile das PDF auf."
+              : "File payload is too large (> 4.5 MB).";
+          } else if (res.status === 401) {
+            errorMsg = lang === "de"
+              ? "Sitzung abgelaufen: Bitte melde dich an, um Dokumente zu speichern."
+              : "Session expired. Please log in.";
+          } else if (res.status === 403) {
+            errorMsg = lang === "de"
+              ? "Zugriff verweigert: Dieses Modul gehört zu einem anderen Benutzerkonto."
+              : "Access denied: Module belongs to another account.";
+          } else if (res.status === 504) {
+            errorMsg = lang === "de"
+              ? "Zeitüberschreitung der KI-Analyse. Bitte versuche es erneut."
+              : "AI analysis timed out.";
+          } else {
+            errorMsg = rawText.slice(0, 150) || `Serverfehler (${res.status})`;
+          }
+        }
+      } catch (err: any) {
+        errorMsg = err.message || "Netzwerkfehler beim Hochladen.";
+      }
 
       if (res.ok) {
         setUploadSuccess(
@@ -466,7 +551,15 @@ function ModuleDetailContent() {
         fetchModule();
         setTimeout(() => setUploadSuccess(null), 8000);
       } else {
-        setUploadError(data.error || "Fehler beim Hochladen des Dokuments. Bitte prüfe deine Anmeldung.");
+        setUploadError(
+          errorMsg ||
+            (lang === "de"
+              ? "Fehler beim Hochladen des Dokuments. Bitte prüfe deine Anmeldung."
+              : "Failed to upload document.")
+        );
+        if (res.status === 401) {
+          setShowAuthModal(true);
+        }
       }
     } catch (err: any) {
       console.error(err);
@@ -962,7 +1055,34 @@ function ModuleDetailContent() {
                 {uploadError && (
                   <div className="mb-3.5 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-semibold text-rose-800 dark:text-rose-200 flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                    <span>{uploadError}</span>
+                    <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <span>{uploadError}</span>
+                      {(!currentUser || uploadError.toLowerCase().includes("anmeld") || uploadError.toLowerCase().includes("sitzung")) && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAuthModal(true)}
+                          className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shrink-0 shadow-sm"
+                        >
+                          {lang === "de" ? "Jetzt anmelden" : "Log in now"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {!currentUser && (
+                  <div className="mb-3.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>{lang === "de" ? "Nicht angemeldet: Bitte melde dich an, um Unterlagen zu speichern." : "Not logged in: Please log in to save documents."}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAuthModal(true)}
+                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shrink-0"
+                    >
+                      {lang === "de" ? "Anmelden" : "Log in"}
+                    </button>
                   </div>
                 )}
 
@@ -2428,6 +2548,25 @@ function ModuleDetailContent() {
           onClose={() => setEditingQuestion(null)}
           onQuestionUpdated={() => {
             setEditingQuestion(null);
+            fetchModule();
+          }}
+        />
+      )}
+
+      {/* Auth Modal for Login / Session Refresh */}
+      {showAuthModal && (
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          currentUser={currentUser}
+          onSuccess={(u) => {
+            setCurrentUser(u);
+            setShowAuthModal(false);
+            fetchModule();
+          }}
+          onLogout={() => {
+            setCurrentUser(null);
+            setShowAuthModal(false);
             fetchModule();
           }}
         />

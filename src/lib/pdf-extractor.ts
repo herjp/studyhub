@@ -98,6 +98,122 @@ export async function extractPdfTextWithPdfJs(input: File | ArrayBuffer): Promis
 }
 
 /**
+ * Renders the first pages of a scanned/photo PDF to a compressed JPEG in the browser using PDF.js.
+ * Produces crisp, high-resolution (~1500px) images that are tiny in payload (~200 KB)
+ * so they easily pass Vercel's 4.5 MB payload limit and are lightning fast for Gemini Vision OCR.
+ */
+export async function renderPdfToCompressedJpeg(
+  input: File | ArrayBuffer,
+  maxPages: number = 2
+): Promise<{ base64: string; mimeType: string; sizeStr: string } | null> {
+  if (typeof window === "undefined") return null;
+
+  // Ensure PDF.js is loaded
+  if (!(window as any).pdfjsLib) {
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector('script[data-pdfjs="true"]');
+      if (existing) {
+        existing.addEventListener("load", () => resolve());
+        existing.addEventListener("error", reject);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "/pdf.min.js";
+      script.setAttribute("data-pdfjs", "true");
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+
+  const pdfjsLib = (window as any).pdfjsLib;
+  if (!pdfjsLib) return null;
+
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
+  } catch (e) {
+    console.warn("GlobalWorkerOptions workerSrc error:", e);
+  }
+
+  try {
+    const arrayBuffer = input instanceof ArrayBuffer ? input : await input.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer.slice(0));
+    const loadingTask = pdfjsLib.getDocument({
+      data,
+      cMapUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/standard_fonts/",
+    });
+
+    const pdf = await loadingTask.promise;
+    const numPages = pdf.numPages;
+    if (numPages === 0) return null;
+
+    const pagesToRender = Math.min(numPages, maxPages);
+    const canvases: HTMLCanvasElement[] = [];
+
+    let totalHeight = 0;
+    let maxWidth = 0;
+
+    for (let p = 1; p <= pagesToRender; p++) {
+      const page = await pdf.getPage(p);
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+      // Scale to max 1500px width for optimal OCR readability while keeping JPEG small
+      const targetWidth = Math.min(1500, Math.max(900, unscaledViewport.width * 1.5));
+      const scale = targetWidth / unscaledViewport.width;
+      const viewport = page.getViewport({ scale });
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) continue;
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      canvases.push(canvas);
+
+      maxWidth = Math.max(maxWidth, canvas.width);
+      totalHeight += canvas.height;
+    }
+
+    if (canvases.length === 0) return null;
+
+    // Stitch pages vertically if multi-page scan
+    const combinedCanvas = document.createElement("canvas");
+    combinedCanvas.width = maxWidth;
+    combinedCanvas.height = totalHeight;
+    const combinedCtx = combinedCanvas.getContext("2d");
+    if (!combinedCtx) return null;
+
+    // Fill white background
+    combinedCtx.fillStyle = "#ffffff";
+    combinedCtx.fillRect(0, 0, combinedCanvas.width, combinedCanvas.height);
+
+    let currentY = 0;
+    for (const c of canvases) {
+      combinedCtx.drawImage(c, 0, currentY);
+      currentY += c.height;
+    }
+
+    // Export as high-quality JPEG (quality 0.80)
+    const jpegDataUrl = combinedCanvas.toDataURL("image/jpeg", 0.80);
+    const cleanBase64 = jpegDataUrl.replace(/^data:image\/jpeg;base64,/, "");
+    const approxBytes = Math.round((cleanBase64.length * 3) / 4);
+    const sizeStr = `${Math.round(approxBytes / 1024)} KB (Scan komprimiert)`;
+
+    return {
+      base64: cleanBase64,
+      mimeType: "image/jpeg",
+      sizeStr,
+    };
+  } catch (err: any) {
+    console.warn("Failed to render PDF to compressed JPEG:", err);
+    return null;
+  }
+}
+
+/**
  * Strips null bytes (0x00) and dangerous non-printable control characters
  * to ensure compatibility with PostgreSQL text / varchar columns.
  */
