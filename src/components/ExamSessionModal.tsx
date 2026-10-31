@@ -288,6 +288,7 @@ export function ExamSessionModal({
             sourceRef: currentQ.sourceRef,
             apiKey: storedKey,
             provider: storedProvider,
+            lang,
           }),
         });
 

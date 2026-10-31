@@ -14,6 +14,7 @@ export async function POST(req: Request) {
       sourceRef,
       apiKey,
       provider,
+      lang,
     } = body;
 
     if (!moduleId || !questionText || !userAnswer) {
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
       sourceRef,
       apiKey,
       provider,
+      lang,
     });
 
     // If questionId provided, update Spaced Repetition progress

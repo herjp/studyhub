@@ -403,8 +403,17 @@ export async function evaluateFreeTextAnswer(params: {
   sourceRef?: string | null;
   apiKey?: string;
   provider?: "openai" | "anthropic" | "gemini" | "local" | string;
+  lang?: "de" | "en" | string;
 }): Promise<EvaluationResult> {
-  const { moduleId, questionText, sampleSolution, userAnswer, apiKey, provider = "local" } = params;
+  const { moduleId, questionText, sampleSolution, userAnswer, apiKey, provider = "local", lang } = params;
+
+  // Detect whether the exam/response is in English or German
+  const detectedEnglish =
+    lang === "en" ||
+    /\b(the|is|and|of|to|in|for|with|that|which|by|as|from|architecture|system|service|pattern|model|process|design|database|query|table|component)\b/i.test(
+      `${questionText} ${sampleSolution} ${userAnswer}`
+    );
+  const isEnglish = lang === "de" ? false : detectedEnglish;
 
   // Retrieve relevant RAG context from uploaded module slides & past exams
   const relevantChunks = await searchModuleDocuments(moduleId, `${questionText} ${sampleSolution}`, 2);
@@ -416,7 +425,7 @@ export async function evaluateFreeTextAnswer(params: {
     params.sourceRef ||
     (relevantChunks.length > 0
       ? `${relevantChunks[0].documentTitle}`
-      : "Vorlesungsunterlagen");
+      : (isEnglish ? "Lecture Materials" : "Vorlesungsunterlagen"));
 
   const systemInstruction = `Du bist ein erfahrener Universitätsprofessor und verständnisvoller Klausurprüfer für universitäre Fachprüfungen.
 Deine oberste Richtlinie ist: Bewerte nach ECHTEM INHALTLICHEM VERSTÄNDNIS, logischer Kausalität und fachlicher Substanz – NIEMALS nach sturem Wortlaut- oder Keyword-Vergleich mit der Musterlösung!
@@ -445,7 +454,6 @@ WICHTIGE KORREKTUR-PRINZIPIEN:
 
 4. KURZ & KNAPP ZUSAMMENFASSUNG:
    - "summary": Ein prägnantes, motivierendes Fazit in 1-2 kurzen Sätzen am Ende. Hebe genau hervor, was im Kern gut war und was noch gefehlt hat.
-     Beispiel: "✓ Im Kern super verstanden: Du erklärst treffend das Prinzip der Lastverteilung. ⚠ Für die volle Punktzahl hat noch die Differenzierung zwischen Layer-4 und Layer-7 Load Balancing gefehlt."
 
 5. FAIRE PUNKTEVERGABE (0.0 bis 5.0 Punkte in 0.5-Schritten):
    - 4.5 - 5.0: Kernidee vollkommen verstanden und überzeugend dargelegt (auch mit eigenen Worten).
@@ -453,6 +461,12 @@ WICHTIGE KORREKTUR-PRINZIPIEN:
    - 2.5 - 3.0: Grundgedanke ansatzweise richtig, aber unvollständig oder wesentliche Aspekte fehlen.
    - 1.0 - 2.0: Nur oberflächliche Randbemerkungen oder gravierende sachliche Fehlannahmen.
    - 0.0 - 0.5: Thema völlig verfehlt oder keine inhaltliche Aussage.
+
+6. BILINGUALER SUPPORT (DEUTSCH & ENGLISCH):
+   - Passe die Sprache deines Feedbacks IMMER an die Sprache der Aufgabe und der Studierenden-Antwort an!
+   - Wenn die Aufgabe, die Musterlösung oder die Studierendenantwort auf ENGLISCH verfasst ist (oder lang="en"), verfasse ALLE Textfelder ("reasoning", "summary", "whatWasGood", "whatWasWrong", "whatWasMissing", "detectedKeyTerms", "missingKeyTerms", "accuracyComment", "feedback") vollständig auf ENGLISCH!
+   - Wenn auf DEUTSCH, formuliere alles auf DEUTSCH.
+   - Fachbegriffe in beiden Sprachen (sowie international übliche englische Fachbegriffe wie "Event Sourcing", "Load Balancing", "Single Point of Failure", "Deadlock", "Caching") werden nahtlos verstanden und akzeptiert.
 
 Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
 {
@@ -471,17 +485,19 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
   "sourceRef": "${effectiveSourceRef}"
 }`;
 
-  const userPrompt = `AUFGABE:
+  const userPrompt = `AUFGABE / QUESTION:
 ${questionText}
 
-MUSTERLÖSUNG:
+MUSTERLÖSUNG / SAMPLE SOLUTION:
 ${sampleSolution}
 
-VORLESUNGSMATERIALIEN / ALTKLAUSUREN:
+VORLESUNGSMATERIALIEN / COURSE MATERIALS:
 ${ragContext}
 
-ANTWORT DES STUDIERENDEN:
-${userAnswer}`;
+ANTWORT DES STUDIERENDEN / STUDENT ANSWER:
+${userAnswer}
+
+PREFERRED LANGUAGE: ${isEnglish ? "ENGLISH" : "GERMAN"}`;
 
   // Try Universal AI Router if API key or provider is set
   if (apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) {
@@ -502,12 +518,22 @@ ${userAnswer}`;
 
       let summary = parsed.summary;
       if (!summary || typeof summary !== "string" || summary.length < 5) {
-        if (score >= 4) {
-          summary = `✓ Sehr gut verstanden! Die Kernaussage wurde treffend dargestellt.${whatWasMissing.length > 0 ? ` Zur vollen Punktzahl fehlte noch: ${whatWasMissing.slice(0, 2).join(", ")}.` : ""}`;
-        } else if (score >= 3) {
-          summary = `✓ Im Kern richtig erfasst.${whatWasGood.length > 0 ? ` Gut: ${whatWasGood.slice(0, 2).join("; ")}.` : ""} ⚠ Für die volle Punktzahl fehlte: ${whatWasMissing.slice(0, 2).join("; ") || "weitere Vertiefung"}.`;
+        if (isEnglish) {
+          if (score >= 4) {
+            summary = `✓ Well understood! Key concepts were accurately explained.${whatWasMissing.length > 0 ? ` For full points, consider adding: ${whatWasMissing.slice(0, 2).join(", ")}.` : ""}`;
+          } else if (score >= 3) {
+            summary = `✓ Core principles grasped.${whatWasGood.length > 0 ? ` Good: ${whatWasGood.slice(0, 2).join("; ")}.` : ""} ⚠ For 5/5 points, add: ${whatWasMissing.slice(0, 2).join("; ") || "further detail"}.`;
+          } else {
+            summary = `⚠ Partially recognized, but needs expansion. Missing key aspects: ${whatWasMissing.slice(0, 2).join("; ") || "theoretical foundation"}.`;
+          }
         } else {
-          summary = `⚠ Ansatzweise erkannt, jedoch noch ausbaufähig. Wichtige fehlende Kernpunkte: ${whatWasMissing.slice(0, 2).join("; ") || "theoretische Fundierung"}.`;
+          if (score >= 4) {
+            summary = `✓ Sehr gut verstanden! Die Kernaussage wurde treffend dargestellt.${whatWasMissing.length > 0 ? ` Zur vollen Punktzahl fehlte noch: ${whatWasMissing.slice(0, 2).join(", ")}.` : ""}`;
+          } else if (score >= 3) {
+            summary = `✓ Im Kern richtig erfasst.${whatWasGood.length > 0 ? ` Gut: ${whatWasGood.slice(0, 2).join("; ")}.` : ""} ⚠ Für die volle Punktzahl fehlte: ${whatWasMissing.slice(0, 2).join("; ") || "weitere Vertiefung"}.`;
+          } else {
+            summary = `⚠ Ansatzweise erkannt, jedoch noch ausbaufähig. Wichtige fehlende Kernpunkte: ${whatWasMissing.slice(0, 2).join("; ") || "theoretische Fundierung"}.`;
+          }
         }
       }
 
@@ -515,9 +541,9 @@ ${userAnswer}`;
         score,
         maxScore: 5,
         isCorrect: typeof parsed.isCorrect === "boolean" ? parsed.isCorrect : (score >= 3),
-        accuracyComment: parsed.accuracyComment || (score >= 3 ? "Inhaltlich fundiert und klausurrelevant" : "Ausbaufähig"),
+        accuracyComment: parsed.accuracyComment || (score >= 3 ? (isEnglish ? "Conceptually sound & exam-relevant" : "Inhaltlich fundiert und klausurrelevant") : (isEnglish ? "Needs improvement" : "Ausbaufähig")),
         summary,
-        reasoning: parsed.reasoning || "Semantische Abwägung anhand der Vorlesungsmaterialien durchgeführt.",
+        reasoning: parsed.reasoning || (isEnglish ? "Semantic evaluation performed against course materials." : "Semantische Abwägung anhand der Vorlesungsmaterialien durchgeführt."),
         whatWasGood,
         whatWasWrong,
         whatWasMissing,
@@ -532,18 +558,23 @@ ${userAnswer}`;
     }
   }
 
-  // Enhanced Local Semantic Grading Engine (Fair Stem & Conceptual Analysis)
+  // Enhanced Local Semantic Grading Engine (Fair Stem & Conceptual Analysis in DE and EN)
   const cleanAnswer = userAnswer.trim();
   const lowerAnswer = cleanAnswer.toLowerCase();
 
-  // Helper to extract word stems (removing common German inflections)
+  const stopWords = new Set([
+    "diese", "dieser", "dieses", "durch", "nicht", "sowie", "haben", "einer", "einem", "eines", "unter", "werden", "können", "solche", "damit", "sollen", "wurde", "wird",
+    "this", "that", "these", "those", "with", "from", "have", "been", "were", "what", "which", "will", "would", "could", "should", "their", "there", "about", "into", "then", "than"
+  ]);
+
+  // Helper to extract word stems (removing common German & English inflections)
   const extractStems = (text: string): string[] => {
     return text
       .toLowerCase()
       .replace(/[.,:;()\[\]"'/\\-]/g, " ")
       .split(/\s+/)
-      .filter((w) => w.length >= 4 && !["diese", "durch", "nicht", "sowie", "haben", "einer", "einem", "eines", "unter", "werden", "können", "solche", "damit", "sollen", "wurde", "wird"].includes(w))
-      .map((w) => w.replace(/(ungen|ungen|ung|heit|keit|iert|ieren|lich|isch|ende|end|er|en|es|em|e)$/, ""));
+      .filter((w) => w.length >= 4 && !stopWords.has(w))
+      .map((w) => w.replace(/(ungen|ungen|ung|heit|keit|iert|ieren|lich|isch|ende|end|tion|tions|ing|ed|ment|ments|able|ible|ally|er|en|es|em|e|s)$/, ""));
   };
 
   const sampleStems = Array.from(new Set(extractStems(sampleSolution)));
@@ -581,29 +612,41 @@ ${userAnswer}`;
   const missingKeyTerms = rawKeyTerms.filter((term) => !lowerAnswer.includes(term.toLowerCase().slice(0, 4)));
 
   const whatWasGood = detectedKeyTerms.length > 0 
-    ? detectedKeyTerms.map((t) => `Treffende Erläuterung im Bereich "${t}"`)
-    : (wordCount >= 10 ? ["Eigener nachvollziehbarer Erklärungsansatz formuliert"] : []);
+    ? detectedKeyTerms.map((t) => isEnglish ? `Accurate explanation regarding "${t}"` : `Treffende Erläuterung im Bereich "${t}"`)
+    : (wordCount >= 10 ? [isEnglish ? "Logical explanation formulated in your own words" : "Eigener nachvollziehbarer Erklärungsansatz formuliert"] : []);
 
   const whatWasWrong: string[] = []; // Do not falsely accuse students in local mode
 
-  const whatWasMissing = missingKeyTerms.slice(0, 3).map((t) => `Vertiefung zum Aspekt "${t}"`);
+  const whatWasMissing = missingKeyTerms.slice(0, 3).map((t) => isEnglish ? `Further elaboration on "${t}"` : `Vertiefung zum Aspekt "${t}"`);
 
   let summary = "";
-  if (score >= 4) {
-    summary = `✓ Sehr gut verstanden! Kernaussagen wurden sinngemäß treffend dargelegt.${whatWasMissing.length > 0 ? ` Zur vollen Punktzahl empfiehlt sich noch: ${missingKeyTerms.slice(0, 2).join(", ")}.` : ""}`;
-  } else if (score >= 3) {
-    summary = `✓ Im Kern richtig erfasst. Eigene Argumentation schlüssig dargelegt. ⚠ Für 5/5 Punkte noch ergänzen: ${missingKeyTerms.slice(0, 2).join(", ") || "Detailtiefe laut Vorlesung"}.`;
+  if (isEnglish) {
+    if (score >= 4) {
+      summary = `✓ Very well understood! Core points clearly explained in your own words.${whatWasMissing.length > 0 ? ` For full points, consider deepening: ${missingKeyTerms.slice(0, 2).join(", ")}.` : ""}`;
+    } else if (score >= 3) {
+      summary = `✓ Core principles grasped and logically structured. ⚠ For 5/5 points, expand on: ${missingKeyTerms.slice(0, 2).join(", ") || "course details"}.`;
+    } else {
+      summary = `⚠ Partially recognized, but needs expansion. Missing key concepts: ${missingKeyTerms.slice(0, 2).join(", ") || "theoretical background"}.`;
+    }
   } else {
-    summary = `⚠ Ansatzweise erkannt, jedoch noch ausbaufähig. Wichtige fehlende Kernaspekte: ${missingKeyTerms.slice(0, 2).join(", ") || "theoretische Fundierung"}.`;
+    if (score >= 4) {
+      summary = `✓ Sehr gut verstanden! Kernaussagen wurden sinngemäß treffend dargelegt.${whatWasMissing.length > 0 ? ` Zur vollen Punktzahl empfiehlt sich noch: ${missingKeyTerms.slice(0, 2).join(", ")}.` : ""}`;
+    } else if (score >= 3) {
+      summary = `✓ Im Kern richtig erfasst. Eigene Argumentation schlüssig dargelegt. ⚠ Für 5/5 Punkte noch ergänzen: ${missingKeyTerms.slice(0, 2).join(", ") || "Detailtiefe laut Vorlesung"}.`;
+    } else {
+      summary = `⚠ Ansatzweise erkannt, jedoch noch ausbaufähig. Wichtige fehlende Kernaspekte: ${missingKeyTerms.slice(0, 2).join(", ") || "theoretische Fundierung"}.`;
+    }
   }
 
-  const reasoning = `Lokale semantische Analyse: Es wurden ${matchedStems.length} von ${sampleStems.length} Kernbegriffs-Wortstämmen erkannt (Abdeckung: ${Math.round(coverageRatio * 100)}%, Textumfang: ${wordCount} Wörter). Die Antwort wurde nach inhaltlicher Kausalität und Sinnzusammenhang statt nach reinem Wortlaut bewertet.`;
+  const reasoning = isEnglish
+    ? `Local semantic analysis: Recognized ${matchedStems.length} of ${sampleStems.length} key concept roots (coverage: ${Math.round(coverageRatio * 100)}%, word count: ${wordCount} words). Evaluated based on conceptual logic and causality rather than verbatim wording.`
+    : `Lokale semantische Analyse: Es wurden ${matchedStems.length} von ${sampleStems.length} Kernbegriffs-Wortstämmen erkannt (Abdeckung: ${Math.round(coverageRatio * 100)}%, Textumfang: ${wordCount} Wörter). Die Antwort wurde nach inhaltlicher Kausalität und Sinnzusammenhang statt nach reinem Wortlaut bewertet.`;
 
   return {
     score,
     maxScore: 5,
     isCorrect,
-    accuracyComment: isCorrect ? "Inhaltlich verstanden und klausurrelevant" : "Ausbaufähig – Lücken bei Fachaspekten",
+    accuracyComment: isCorrect ? (isEnglish ? "Conceptually sound & exam-relevant" : "Inhaltlich verstanden und klausurrelevant") : (isEnglish ? "Needs improvement" : "Ausbaufähig – Lücken bei Fachaspekten"),
     summary,
     reasoning,
     whatWasGood,
@@ -613,7 +656,7 @@ ${userAnswer}`;
     missingKeyTerms,
     feedback: summary,
     sourceRef: effectiveSourceRef,
-    modelUsed: "Lokale Semantic Engine (Heuristik)",
+    modelUsed: isEnglish ? "Local Semantic Engine" : "Lokale Semantic Engine (Heuristik)",
   };
 }
 
