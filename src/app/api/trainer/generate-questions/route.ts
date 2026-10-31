@@ -13,7 +13,8 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { moduleId, topicId, count = 5, apiKey, provider = "gemini", model } = body;
+    const { moduleId, topicId, count = 10, apiKey, provider = "gemini", model } = body;
+    const requestedCount = typeof count === "number" ? count : 10;
 
     if (!moduleId) {
       return NextResponse.json({ error: "moduleId ist erforderlich" }, { status: 400 });
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
         topicName = foundTopic.name;
       }
     } else if (mod.topics.length > 0) {
-      topicName = mod.topics[0].name;
+      topicName = mod.topics.map((t) => t.name).join(", ");
     } else {
       topicName = mod.name;
     }
@@ -99,7 +100,7 @@ export async function POST(req: Request) {
         moduleId,
         topicName,
         documentsText: combinedDocText,
-        count: Math.min(Math.max(1, count), 15),
+        count: Math.min(Math.max(1, requestedCount), 30),
         existingQuestions: existingQuestionTexts,
         apiKey: apiKey?.trim() || undefined,
         provider,
@@ -125,13 +126,25 @@ export async function POST(req: Request) {
       );
     }
 
-    // 8. Save to database
+    // 8. Save to database with balanced topic distribution
     const createdQuestions = [];
-    for (const q of aiQuestions) {
+    for (let i = 0; i < aiQuestions.length; i++) {
+      const q = aiQuestions[i];
+
+      let resolvedTopicId = topicId;
+      if (!resolvedTopicId && mod.topics.length > 0) {
+        const matched = mod.topics.find(
+          (t) =>
+            t.name.toLowerCase().includes((q.topicName || "").toLowerCase()) ||
+            (q.topicName && q.topicName.toLowerCase().includes(t.name.toLowerCase()))
+        );
+        resolvedTopicId = matched ? matched.id : mod.topics[i % mod.topics.length].id;
+      }
+
       const newQ = await prisma.question.create({
         data: {
           moduleId,
-          topicId: topicId || (mod.topics.length > 0 ? mod.topics[0].id : null),
+          topicId: resolvedTopicId || (mod.topics.length > 0 ? mod.topics[0].id : null),
           type:
             q.type === "SINGLE_CHOICE"
               ? QuestionType.SINGLE_CHOICE

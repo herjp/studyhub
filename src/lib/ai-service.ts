@@ -802,7 +802,7 @@ WICHTIGSTE QUALITÄTSVORGABEN:
    - FREE_TEXT: Akademische Transfer- oder Klausuraufgabe mit ausführlicher Kriterien-Musterlösung.
    - MATCHING: Zuordnungs- / Drag-and-Drop-Aufgabe für Prozesse, Modelle, Abbildungen oder Definitionen.
      (In 'options' hat jedes Element 'text' für den Begriff und 'target' für die passende Definition/Kategorie).
-5. KEINE DUPLIKATE: Erstelle nur neue, unverbrauchte Fragen, die sich nicht wiederholen.${existingQuestionsWarning}
+5. KEINE DUPLIKATE: Erstelle genau ${count} neue, eigenständige Prüfungsfragen, die sich nicht wiederholen.${existingQuestionsWarning}
 
 Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit dem Key "questions":
 {
@@ -820,6 +820,7 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit dem Key "questions":
   ]
 }`;
 
+  const requestCount = Math.min(35, count >= 15 ? count + 3 : count + 1);
   const userPrompt = `FACH / MODUL: ${topicName}
 
 AUSZÜGE AUS DEM GESAMTEN VORLESUNGSMATERIAL (Gleichmäßig über alle Kapitel verteilt):
@@ -827,7 +828,7 @@ AUSZÜGE AUS DEM GESAMTEN VORLESUNGSMATERIAL (Gleichmäßig über alle Kapitel v
 ${stratifiedContext}
 ---
 
-Erstelle jetzt genau ${count} anspruchsvolle, klausurrelevante Prüfungsfragen zum FACHINHALT der obigen Auszüge. Ignoriere Formalia, Inhaltsverzeichnisse und Vorworte vollständig.`;
+Erstelle jetzt genau ${requestCount} unterschiedliche, anspruchsvolle, klausurrelevante Prüfungsfragen zum FACHINHALT der obigen Auszüge. Verteile die Fragen über den gesamten Stoff. Ignoriere Formalia, Inhaltsverzeichnisse und Vorworte vollständig.`;
 
   const { parsed } = await callUniversalAIJSON({
     prompt: userPrompt,

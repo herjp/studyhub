@@ -644,6 +644,7 @@ function ModuleDetailContent() {
 
   // AI Question Generation State
   const [isGeneratingAiQuestions, setIsGeneratingAiQuestions] = useState(false);
+  const [aiQuestionCount, setAiQuestionCount] = useState<number>(10);
   const [aiSuccessToast, setAiSuccessToast] = useState<string | null>(null);
   const [aiErrorToast, setAiErrorToast] = useState<string | null>(null);
 
@@ -670,7 +671,7 @@ function ModuleDetailContent() {
   });
 
   // Generate Questions via Gemini / OpenAI / Anthropic
-  const handleGenerateAiQuestions = async (topicId?: string) => {
+  const handleGenerateAiQuestions = async (topicId?: string, countOverride?: number) => {
     // Check if module has uploaded documents
     if (!moduleData?.documents || moduleData.documents.length === 0) {
       setAiErrorToast(
@@ -683,6 +684,7 @@ function ModuleDetailContent() {
       return;
     }
 
+    const effectiveCount = countOverride || aiQuestionCount || 10;
     setIsGeneratingAiQuestions(true);
     setAiSuccessToast(null);
     setAiErrorToast(null);
@@ -702,7 +704,7 @@ function ModuleDetailContent() {
         body: JSON.stringify({
           moduleId,
           topicId,
-          count: 5,
+          count: effectiveCount,
           apiKey: storedKey,
           provider: storedProvider,
           model: storedModel,
@@ -714,10 +716,10 @@ function ModuleDetailContent() {
       if (res.ok) {
         setAiSuccessToast(
           lang === "de"
-            ? `${data.count || 5} neue Klausurfragen erfolgreich aus deinen Vorlesungsunterlagen generiert und gespeichert!`
-            : `${data.count || 5} new exam questions successfully generated from your documents!`
+            ? `✓ ${data.count || effectiveCount} neue Klausurfragen erfolgreich aus deinen Vorlesungsunterlagen generiert und gespeichert!`
+            : `✓ ${data.count || effectiveCount} new exam questions successfully generated from your documents!`
         );
-        setTimeout(() => setAiSuccessToast(null), 5000);
+        setTimeout(() => setAiSuccessToast(null), 8000);
         fetchModule();
       } else {
         setAiErrorToast(data.error || "Fehler beim Generieren der Fragen.");
@@ -1352,17 +1354,39 @@ function ModuleDetailContent() {
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleGenerateAiQuestions()}
-                    disabled={isGeneratingAiQuestions}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    {isGeneratingAiQuestions
-                      ? (lang === "de" ? "Generiere mit KI..." : "Generating with AI...")
-                      : (lang === "de" ? "Mit KI Fragen generieren" : "Generate Questions with AI")}
-                  </button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                      <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 px-1.5">
+                        {lang === "de" ? "Anzahl:" : "Qty:"}
+                      </span>
+                      {[5, 10, 15, 20, 25, 30].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => setAiQuestionCount(cnt)}
+                          className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            aiQuestionCount === cnt
+                              ? "bg-indigo-600 text-white shadow-xs"
+                              : "text-slate-600 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-700"
+                          }`}
+                        >
+                          {cnt}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleGenerateAiQuestions(undefined, aiQuestionCount)}
+                      disabled={isGeneratingAiQuestions}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                      {isGeneratingAiQuestions
+                        ? (lang === "de" ? `Generiere ${aiQuestionCount} Fragen mit KI...` : `Generating ${aiQuestionCount} questions...`)
+                        : (lang === "de" ? `Mit KI ${aiQuestionCount} Fragen generieren` : `Generate ${aiQuestionCount} Questions`)}
+                    </button>
+                  </div>
                 </div>
 
                 {aiSuccessToast && (
@@ -1997,17 +2021,39 @@ function ModuleDetailContent() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleGenerateAiQuestions()}
-                  disabled={isGeneratingAiQuestions}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm self-start sm:self-auto cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  {isGeneratingAiQuestions
-                    ? (lang === "de" ? "Generiere Fragen mit KI..." : "Generating with AI...")
-                    : (lang === "de" ? "Mit KI neue Fragen generieren" : "Generate Questions with AI")}
-                </button>
+                <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                  <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                    <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 px-1.5">
+                      {lang === "de" ? "Anzahl:" : "Qty:"}
+                    </span>
+                    {[5, 10, 15, 20, 25, 30].map((cnt) => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => setAiQuestionCount(cnt)}
+                        className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          aiQuestionCount === cnt
+                            ? "bg-indigo-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-300 hover:bg-white/80 dark:hover:bg-slate-700"
+                        }`}
+                      >
+                        {cnt}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateAiQuestions(undefined, aiQuestionCount)}
+                    disabled={isGeneratingAiQuestions}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    {isGeneratingAiQuestions
+                      ? (lang === "de" ? `Generiere ${aiQuestionCount} Fragen mit KI...` : `Generating ${aiQuestionCount} questions...`)
+                      : (lang === "de" ? `Mit KI ${aiQuestionCount} neue Fragen generieren` : `Generate ${aiQuestionCount} Questions`)}
+                  </button>
+                </div>
               </div>
 
               {aiSuccessToast && (
