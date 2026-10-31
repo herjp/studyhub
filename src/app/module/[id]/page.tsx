@@ -46,6 +46,71 @@ import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
 import { extractPdfTextFromArrayBuffer } from "@/lib/pdf-extractor";
 
+/**
+ * Automatically downsizes and compresses large smartphone / high-res photos
+ * to a lightweight JPEG (max 2048px, quality 0.85) for instant upload and Gemini Vision OCR.
+ */
+async function compressImageForUpload(
+  file: File
+): Promise<{ base64: string; mimeType: string; sizeStr: string }> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX_DIM = 2048;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > MAX_DIM || height > MAX_DIM) {
+        if (width > height) {
+          height = Math.round((height * MAX_DIM) / width);
+          width = MAX_DIM;
+        } else {
+          width = Math.round((width * MAX_DIM) / height);
+          height = MAX_DIM;
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        const reader = new FileReader();
+        reader.onload = (e) =>
+          resolve({
+            base64: e.target?.result as string,
+            mimeType: file.type || "image/jpeg",
+            sizeStr: `${Math.round(file.size / 1024)} KB`,
+          });
+        reader.readAsDataURL(file);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      const compressedBase64 = canvas.toDataURL("image/jpeg", 0.85);
+      const approxBytes = Math.round((compressedBase64.length * 3) / 4);
+      const sizeStr =
+        approxBytes > 1024 * 1024
+          ? `${(approxBytes / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.round(approxBytes / 1024)} KB`;
+      resolve({ base64: compressedBase64, mimeType: "image/jpeg", sizeStr });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      const reader = new FileReader();
+      reader.onload = (e) =>
+        resolve({
+          base64: e.target?.result as string,
+          mimeType: file.type || "image/jpeg",
+          sizeStr: `${Math.round(file.size / 1024)} KB`,
+        });
+      reader.readAsDataURL(file);
+    };
+    img.src = url;
+  });
+}
+
 function ModuleDetailContent() {
   const { lang, t } = useLanguage();
   const params = useParams();
@@ -99,12 +164,32 @@ function ModuleDetailContent() {
       setDocTitle(cleanName);
     }
 
+    const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|heic)$/i.test(file.name);
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+    // 1. Photos & Lecture Slides (PNG, JPG, HEIC): Compress & send base64 for Gemini Vision Multimodal OCR
+    if (isImage) {
+      try {
+        const compressed = await compressImageForUpload(file);
+        setUploadedFile({
+          file,
+          name: file.name,
+          sizeStr: compressed.sizeStr,
+          base64: compressed.base64,
+          mimeType: compressed.mimeType,
+          clientExtractedText: undefined,
+        });
+        return;
+      } catch (err) {
+        console.warn("Client photo compression fallback:", err);
+      }
+    }
+
     const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
     const sizeStr = file.size > 1024 * 1024 ? `${sizeMB} MB` : `${Math.round(file.size / 1024)} KB`;
 
-    // 1. Client-side PDF extraction: Extracts text directly in browser in milliseconds
+    // 2. Client-side PDF extraction: Extracts text directly in browser in milliseconds
     let clientText = "";
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     if (isPdf) {
       try {
         const ab = await file.arrayBuffer();
@@ -114,7 +199,7 @@ function ModuleDetailContent() {
       }
     }
 
-    // 2. Only read base64 if file is under 3.8 MB (prevents Vercel 4.5 MB request payload crash)
+    // 3. Only read base64 for PDFs if under 3.8 MB (prevents Vercel 4.5 MB request payload crash)
     if (file.size < 3.8 * 1024 * 1024) {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -859,10 +944,14 @@ function ModuleDetailContent() {
                                 {uploadedFile.name}
                               </p>
                               <p className="text-[10px] text-slate-500">
-                                {uploadedFile.sizeStr} • {uploadedFile.mimeType.includes("pdf") ? "PDF Dokument" : "Folie / Bild"}
+                                {uploadedFile.sizeStr} • {uploadedFile.mimeType.includes("pdf") ? "PDF Dokument" : "Folie / Foto"}
                                 {uploadedFile.clientExtractedText ? (
                                   <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-1">
                                     • ✓ {uploadedFile.clientExtractedText.length} Zeichen Text erkannt
+                                  </span>
+                                ) : uploadedFile.mimeType.startsWith("image/") ? (
+                                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold ml-1">
+                                    • ✨ KI-Fotoerkennung aktiv (Gemini Vision OCR)
                                   </span>
                                 ) : null}
                               </p>
