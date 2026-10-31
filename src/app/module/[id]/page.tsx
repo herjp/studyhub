@@ -34,6 +34,7 @@ import { FahrschulBar } from "@/components/FahrschulBar";
 import { CircularProgress } from "@/components/CircularProgress";
 import { ExamSessionModal, QuizQuestion } from "@/components/ExamSessionModal";
 import { TopicSummaryModal } from "@/components/TopicSummaryModal";
+import { EditModuleDialog } from "@/components/EditModuleDialog";
 import { Portal } from "@/components/Portal";
 import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
@@ -79,6 +80,7 @@ function ModuleDetailContent() {
 
   // Edit Exam Details & Description State
   const [isEditExamModalOpen, setIsEditExamModalOpen] = useState(false);
+  const [isEditModuleOpen, setIsEditModuleOpen] = useState(false);
   const [examDescInput, setExamDescInput] = useState("");
   const [examDateInput, setExamDateInput] = useState("");
   const [examTimeInput, setExamTimeInput] = useState("");
@@ -211,9 +213,18 @@ function ModuleDetailContent() {
     setIsQuizOpen(true);
   };
 
-  // Start Targeted Gap Training ("Lücke schließen" with 5 questions)
-  const handleStartGapTraining = async (topicId: string) => {
+  // AI Question Generation State
+  const [isGeneratingAiQuestions, setIsGeneratingAiQuestions] = useState(false);
+  const [aiSuccessToast, setAiSuccessToast] = useState(false);
+
+  // Generate Questions via Gemini / AI
+  const handleGenerateAiQuestions = async (topicId?: string) => {
+    setIsGeneratingAiQuestions(true);
+    setAiSuccessToast(false);
     try {
+      const storedKey = typeof window !== "undefined" ? localStorage.getItem("studyhub_api_key") || undefined : undefined;
+      const storedProvider = typeof window !== "undefined" ? localStorage.getItem("studyhub_ai_provider") || "gemini" : "gemini";
+
       const res = await fetch("/api/trainer/generate-questions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -221,6 +232,38 @@ function ModuleDetailContent() {
           moduleId,
           topicId,
           count: 5,
+          apiKey: storedKey,
+          provider: storedProvider,
+        }),
+      });
+
+      if (res.ok) {
+        setAiSuccessToast(true);
+        setTimeout(() => setAiSuccessToast(false), 4000);
+        fetchModule();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsGeneratingAiQuestions(false);
+    }
+  };
+
+  // Start Targeted Gap Training ("Lücke schließen" with 5 questions)
+  const handleStartGapTraining = async (topicId: string) => {
+    try {
+      const storedKey = typeof window !== "undefined" ? localStorage.getItem("studyhub_api_key") || undefined : undefined;
+      const storedProvider = typeof window !== "undefined" ? localStorage.getItem("studyhub_ai_provider") || "gemini" : "gemini";
+
+      const res = await fetch("/api/trainer/generate-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          moduleId,
+          topicId,
+          count: 5,
+          apiKey: storedKey,
+          provider: storedProvider,
         }),
       });
 
@@ -337,6 +380,15 @@ function ModuleDetailContent() {
                     {moduleData.grade && ` (Note ${formatGrade(moduleData.grade)})`}
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setIsEditModuleOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors"
+                  title={lang === "de" ? "Moduldetails bearbeiten oder Modul löschen" : "Edit details or delete course"}
+                >
+                  <Edit2 className="w-3 h-3 text-indigo-500" />
+                  {lang === "de" ? "Modul bearbeiten" : "Edit Course"}
+                </button>
               </div>
 
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
@@ -576,14 +628,35 @@ function ModuleDetailContent() {
 
               {/* Documents List */}
               <div className="lg:col-span-2 space-y-3">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                    {t.storedDocsTitle} ({moduleData.documents?.length ?? 0})
-                  </h3>
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-semibold">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> {t.ragPipelineActive}
-                  </span>
+                <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                      {t.storedDocsTitle} ({moduleData.documents?.length ?? 0})
+                    </h3>
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-semibold">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> {t.ragPipelineActive}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateAiQuestions()}
+                    disabled={isGeneratingAiQuestions}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    {isGeneratingAiQuestions
+                      ? (lang === "de" ? "Generiere mit KI..." : "Generating with AI...")
+                      : (lang === "de" ? "Mit KI Fragen generieren" : "Generate Questions with AI")}
+                  </button>
                 </div>
+
+                {aiSuccessToast && (
+                  <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2 animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>{lang === "de" ? "5 neue Klausurfragen erfolgreich mit KI generiert und gespeichert!" : "5 new exam questions successfully generated and saved!"}</span>
+                  </div>
+                )}
 
                 {moduleData.documents?.length === 0 ? (
                   <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 text-center">
@@ -869,7 +942,7 @@ function ModuleDetailContent() {
 
             {/* Training Starten & Fragentypen Launcher */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 md:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">
                     Training Starten (Modus wählen)
@@ -878,6 +951,18 @@ function ModuleDetailContent() {
                     Wähle einen spezifischen Fragentyp oder starte eine realistische Klausursimulation.
                   </p>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleGenerateAiQuestions()}
+                  disabled={isGeneratingAiQuestions}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm self-start sm:self-auto"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  {isGeneratingAiQuestions
+                    ? (lang === "de" ? "Generiere Fragen mit Gemini..." : "Generating with Gemini...")
+                    : (lang === "de" ? "Mit KI neue Fragen generieren" : "Generate Questions with AI")}
+                </button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
@@ -1204,6 +1289,19 @@ function ModuleDetailContent() {
             </div>
           </div>
         </Portal>
+      )}
+
+      {/* Edit / Delete Module Dialog */}
+      {isEditModuleOpen && (
+        <EditModuleDialog
+          isOpen={isEditModuleOpen}
+          onClose={() => setIsEditModuleOpen(false)}
+          module={moduleData}
+          onUpdated={fetchModule}
+          onDeleted={() => {
+            router.push("/");
+          }}
+        />
       )}
     </div>
   );

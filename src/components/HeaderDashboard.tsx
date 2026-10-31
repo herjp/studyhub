@@ -284,9 +284,17 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm"
                     title={currentUser.email}
                   >
-                    <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black shadow-sm">
-                      {(currentUser.name?.[0] || currentUser.email?.[0] || "U").toUpperCase()}
-                    </div>
+                    {currentUser.avatarUrl ? (
+                      <img
+                        src={currentUser.avatarUrl}
+                        alt="Avatar"
+                        className="w-5 h-5 rounded-full object-cover shadow-sm border border-indigo-300 dark:border-indigo-700"
+                      />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black shadow-sm">
+                        {(currentUser.name?.[0] || currentUser.email?.[0] || "U").toUpperCase()}
+                      </div>
+                    )}
                     <span className="max-w-[85px] sm:max-w-[110px] truncate">
                       {currentUser.name ? currentUser.name.split(" ")[0] : currentUser.email.split("@")[0]}
                     </span>
@@ -409,6 +417,31 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                   {t.settingsAiModeLabel}
                 </label>
                 <div className="space-y-2">
+                  {/* Google Gemini Pro / Flash */}
+                  <label className="flex items-center gap-3 p-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/30 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/50 cursor-pointer transition-all">
+                    <input
+                      type="radio"
+                      name="provider"
+                      value="gemini"
+                      checked={aiProvider === "gemini"}
+                      onChange={(e) => setAiProvider(e.target.value)}
+                      className="text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex-1">
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
+                        Google Gemini (Gemini Pro / Flash)
+                        <span className="px-1.5 py-0.2 bg-indigo-600 text-white text-[10px] rounded-full font-bold">
+                          Empfohlen / Recommended
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {lang === "de"
+                          ? "Kostenloser API-Key auf Google AI Studio (aistudio.google.com). Echte KI-Klausurbewertung & Fragengenerierung."
+                          : "Free API key from Google AI Studio (aistudio.google.com). Real semantic AI exam grading & question generation."}
+                      </p>
+                    </div>
+                  </label>
+
                   <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
                     <input
                       type="radio"
@@ -472,18 +505,34 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
 
                 {aiProvider !== "local" && (
                   <div className="mt-3">
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1 flex items-center gap-1">
-                      <KeyRound className="w-3.5 h-3.5" /> {t.settingsApiKeyLabel} {aiProvider.toUpperCase()}
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <KeyRound className="w-3.5 h-3.5" /> API-Key ({aiProvider === "gemini" ? "Google Gemini AI Studio" : aiProvider.toUpperCase()})
+                      </span>
+                      {aiProvider === "gemini" && (
+                        <a
+                          href="https://aistudio.google.com/app/apikey"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                        >
+                          {lang === "de" ? "Key kostenlos holen ↗" : "Get free key ↗"}
+                        </a>
+                      )}
                     </label>
                     <input
                       type="password"
-                      placeholder="sk-..."
+                      placeholder={aiProvider === "gemini" ? "AIzaSy..." : "sk-..."}
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                     />
                     <p className="text-[10px] text-slate-400 mt-1">
-                      {t.settingsApiKeyHint}
+                      {aiProvider === "gemini"
+                        ? (lang === "de"
+                            ? "Dein Gemini-Key wird lokal im Browser gespeichert und sicher für Klausurbewertungen & Fragengenerierung genutzt."
+                            : "Your Gemini key is stored locally and used securely for exam grading & question generation.")
+                        : t.settingsApiKeyHint}
                     </p>
                   </div>
                 )}

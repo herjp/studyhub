@@ -16,9 +16,20 @@ import {
   ArrowLeft,
   RotateCw,
   Lock,
+  Camera,
+  UploadCloud,
 } from "lucide-react";
 import { Portal } from "./Portal";
 import { useLanguage } from "@/lib/i18n";
+
+const PRESET_AVATARS = [
+  { id: "grad", emoji: "🎓", name: "Academic Cap", url: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><circle cx="40" cy="40" r="40" fill="%234F46E5"/><text x="50%" y="54%" font-size="40" dominant-baseline="middle" text-anchor="middle">🎓</text></svg>` },
+  { id: "owl", emoji: "🦉", name: "Wise Owl", url: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><circle cx="40" cy="40" r="40" fill="%230EA5E9"/><text x="50%" y="54%" font-size="40" dominant-baseline="middle" text-anchor="middle">🦉</text></svg>` },
+  { id: "rocket", emoji: "🚀", name: "High Achiever", url: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><circle cx="40" cy="40" r="40" fill="%23E11D48"/><text x="50%" y="54%" font-size="40" dominant-baseline="middle" text-anchor="middle">🚀</text></svg>` },
+  { id: "coder", emoji: "💻", name: "Tech / Coder", url: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><circle cx="40" cy="40" r="40" fill="%23059669"/><text x="50%" y="54%" font-size="40" dominant-baseline="middle" text-anchor="middle">💻</text></svg>` },
+  { id: "science", emoji: "🔬", name: "Scientist", url: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><circle cx="40" cy="40" r="40" fill="%237C3AED"/><text x="50%" y="54%" font-size="40" dominant-baseline="middle" text-anchor="middle">🔬</text></svg>` },
+  { id: "coffee", emoji: "☕", name: "Coffee Learner", url: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><circle cx="40" cy="40" r="40" fill="%23D97706"/><text x="50%" y="54%" font-size="40" dominant-baseline="middle" text-anchor="middle">☕</text></svg>` },
+];
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -58,6 +69,67 @@ export function AuthModal({
   // 2FA state for profile toggle
   const [twoFactorActive, setTwoFactorActive] = useState<boolean>(false);
   const [isToggling2FA, setIsToggling2FA] = useState(false);
+
+  // Profile picture & avatar state
+  const [avatarUrl, setAvatarUrl] = useState<string>(currentUser?.avatarUrl || "");
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const [avatarSavedToast, setAvatarSavedToast] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (currentUser?.avatarUrl !== undefined) {
+      setAvatarUrl(currentUser.avatarUrl || "");
+    }
+  }, [currentUser]);
+
+  const updateProfileAvatar = async (newUrl: string) => {
+    setAvatarUrl(newUrl);
+    setIsSavingAvatar(true);
+    try {
+      const res = await fetch("/api/auth/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatarUrl: newUrl }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvatarSavedToast(true);
+        setTimeout(() => setAvatarSavedToast(false), 2500);
+        onSuccess(data.user);
+      }
+    } catch (e) {
+      console.error("Failed to update avatar:", e);
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const size = 160;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          const minDim = Math.min(img.width, img.height);
+          const sx = (img.width - minDim) / 2;
+          const sy = (img.height - minDim) / 2;
+          ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+          updateProfileAvatar(dataUrl);
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -273,9 +345,27 @@ export function AuthModal({
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 my-auto animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-sm font-black shadow-md shadow-indigo-500/20">
-                  {(currentUser.name?.[0] || currentUser.email?.[0] || "U").toUpperCase()}
+              <div className="flex items-center gap-3">
+                <div className="relative group flex-shrink-0">
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt="Avatar"
+                      className="w-12 h-12 rounded-2xl object-cover border-2 border-indigo-200 dark:border-indigo-800 shadow-md shadow-indigo-500/10"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-lg font-black shadow-md shadow-indigo-500/20">
+                      {(currentUser.name?.[0] || currentUser.email?.[0] || "U").toUpperCase()}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    title={lang === "de" ? "Eigenes Foto hochladen" : "Upload your photo"}
+                    className="absolute -bottom-1 -right-1 p-1 bg-white dark:bg-slate-800 rounded-full border border-slate-200 dark:border-slate-700 text-indigo-600 shadow-sm hover:scale-110 transition-transform"
+                  >
+                    <Camera className="w-3 h-3" />
+                  </button>
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">
@@ -295,6 +385,66 @@ export function AuthModal({
             </div>
 
             <div className="py-5 space-y-4">
+              {/* Avatar Presets & Custom Upload */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                    {lang === "de" ? "Profilbild & Avatar:" : "Profile Picture & Avatar:"}
+                  </span>
+                  {avatarSavedToast ? (
+                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> {lang === "de" ? "Gespeichert!" : "Saved!"}
+                    </span>
+                  ) : avatarUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => updateProfileAvatar("")}
+                      className="text-[11px] text-slate-400 hover:text-rose-500 transition-colors"
+                    >
+                      {lang === "de" ? "Entfernen" : "Remove"}
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {PRESET_AVATARS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => updateProfileAvatar(preset.url)}
+                      disabled={isSavingAvatar}
+                      title={preset.name}
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center text-base border-2 transition-all hover:scale-105 ${
+                        avatarUrl === preset.url
+                          ? "border-indigo-600 bg-indigo-50 dark:bg-indigo-950/80 shadow-sm"
+                          : "border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 hover:border-indigo-300"
+                      }`}
+                    >
+                      <span>{preset.emoji}</span>
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isSavingAvatar}
+                    title={lang === "de" ? "Foto vom Computer hochladen" : "Upload photo from computer"}
+                    className="h-9 px-2.5 rounded-xl border-2 border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-600 dark:hover:border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 transition-all hover:scale-105"
+                  >
+                    <UploadCloud className="w-3.5 h-3.5" />
+                    <span>{lang === "de" ? "Foto hochladen" : "Upload"}</span>
+                  </button>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                  />
+                </div>
+              </div>
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-500 font-medium">Name</span>

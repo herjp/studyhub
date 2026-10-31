@@ -31,7 +31,81 @@ export interface GeneratedQuestion {
 }
 
 /**
- * Evaluates a student's free text response using LLM (if key provided) or intelligent semantic grading.
+ * Universal call to Google Gemini REST API using structured JSON output.
+ * Tries modern fast Gemini models with automatic fallback.
+ */
+export async function callGeminiJSON(
+  prompt: string,
+  apiKey: string,
+  systemInstruction?: string,
+  preferredModel?: string
+): Promise<{ parsed: any; modelUsed: string }> {
+  const models = preferredModel
+    ? [preferredModel, "gemini-1.5-pro", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+    : ["gemini-1.5-pro", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"];
+
+  // Deduplicate
+  const uniqueModels = Array.from(new Set(models));
+  let lastError: any = null;
+
+  for (const model of uniqueModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const payload: any = {
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.2,
+        },
+      };
+
+      if (systemInstruction) {
+        payload.systemInstruction = {
+          parts: [{ text: systemInstruction }],
+        };
+      }
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.warn(`Gemini (${model}) returned status ${res.status}:`, errorText);
+        lastError = new Error(`Gemini (${model}): ${res.status} ${errorText}`);
+        continue;
+      }
+
+      const json = await res.json();
+      const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) {
+        console.warn(`Gemini (${model}) returned empty text.`);
+        lastError = new Error(`Empty response from Gemini ${model}`);
+        continue;
+      }
+
+      const parsed = JSON.parse(rawText);
+      return { parsed, modelUsed: model };
+    } catch (err: any) {
+      console.warn(`Error invoking Gemini model ${model}:`, err.message);
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error("All Gemini models failed to generate content.");
+}
+
+/**
+ * Evaluates a student's free text response using LLM (Gemini, OpenAI, or smart local engine).
  */
 export async function evaluateFreeTextAnswer(params: {
   moduleId: string;
@@ -40,9 +114,9 @@ export async function evaluateFreeTextAnswer(params: {
   userAnswer: string;
   sourceRef?: string | null;
   apiKey?: string;
-  provider?: "openai" | "anthropic" | "gemini";
+  provider?: "openai" | "anthropic" | "gemini" | "local" | string;
 }): Promise<EvaluationResult> {
-  const { moduleId, questionText, sampleSolution, userAnswer, apiKey, provider = "openai" } = params;
+  const { moduleId, questionText, sampleSolution, userAnswer, apiKey, provider = "local" } = params;
 
   // Retrieve relevant RAG context from uploaded module slides & past exams
   const relevantChunks = await searchModuleDocuments(moduleId, `${questionText} ${sampleSolution}`, 2);
@@ -56,11 +130,60 @@ export async function evaluateFreeTextAnswer(params: {
       ? `${relevantChunks[0].documentTitle}`
       : "Vorlesungsunterlagen");
 
-  // If user provided an OpenAI API key or OPENAI_API_KEY env exists
-  const activeOpenAiKey = apiKey && provider === "openai" ? apiKey : process.env.OPENAI_API_KEY;
-  const activeAnthropicKey = apiKey && provider === "anthropic" ? apiKey : process.env.ANTHROPIC_API_KEY;
+  // Determine active API keys
+  const isGemini = provider === "gemini" || (Boolean(apiKey) && apiKey!.startsWith("AIzaSy"));
+  const activeGeminiKey: string | undefined = (isGemini && apiKey) ? apiKey : process.env.GEMINI_API_KEY;
+  const activeOpenAiKey: string | undefined = (provider === "openai" && apiKey) ? apiKey : process.env.OPENAI_API_KEY;
 
-  if (activeOpenAiKey && (provider === "openai" || !activeAnthropicKey)) {
+  const systemInstruction = `Du bist ein erfahrener Universitätsprofessor und Klausurprüfer.
+Bewerte die Antwort eines Studierenden auf eine Klausuraufgabe objektiv, akademisch präzise und konstruktiv.
+Erkenne Fachbegriffe, beurteile inhaltliche Richtigkeit und Vollständigkeit anhand der Musterlösung und der Vorlesungsfolien.
+Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
+{
+  "score": number (0 bis 5 Punkte, 0.5 Schritte erlaubt),
+  "maxScore": 5,
+  "isCorrect": boolean (true wenn score >= 3.0),
+  "accuracyComment": "Kurzes Fazit zur inhaltlichen Korrektheit",
+  "detectedKeyTerms": ["Fachbegriff 1", "Fachbegriff 2"],
+  "missingKeyTerms": ["Fehlender Begriff 1"],
+  "feedback": "Detailliertes, wohlwollendes aber präzises Feedback",
+  "sourceRef": "${effectiveSourceRef}"
+}`;
+
+  const userPrompt = `AUFGABE:
+${questionText}
+
+MUSTERLÖSUNG:
+${sampleSolution}
+
+VORLESUNGSMATERIALIEN / ALTKLAUSUREN:
+${ragContext}
+
+ANTWORT DES STUDIERENDEN:
+${userAnswer}`;
+
+  // 1. Google Gemini (Gemini Pro / Flash)
+  if (activeGeminiKey) {
+    try {
+      const { parsed, modelUsed } = await callGeminiJSON(userPrompt, activeGeminiKey, systemInstruction);
+      return {
+        score: typeof parsed.score === "number" ? Math.min(5, Math.max(0, parsed.score)) : 3,
+        maxScore: 5,
+        isCorrect: typeof parsed.isCorrect === "boolean" ? parsed.isCorrect : (parsed.score >= 3),
+        accuracyComment: parsed.accuracyComment || "KI-Bewertung abgeschlossen",
+        detectedKeyTerms: Array.isArray(parsed.detectedKeyTerms) ? parsed.detectedKeyTerms : [],
+        missingKeyTerms: Array.isArray(parsed.missingKeyTerms) ? parsed.missingKeyTerms : [],
+        feedback: parsed.feedback || "Antwort erfolgreich geprüft.",
+        sourceRef: parsed.sourceRef || effectiveSourceRef,
+        modelUsed: `Google Gemini (${modelUsed})`,
+      };
+    } catch (err: any) {
+      console.warn("Google Gemini evaluation failed, falling back:", err.message);
+    }
+  }
+
+  // 2. OpenAI (gpt-4o)
+  if (activeOpenAiKey && provider === "openai") {
     try {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -73,37 +196,8 @@ export async function evaluateFreeTextAnswer(params: {
           response_format: { type: "json_object" },
           temperature: 0.2,
           messages: [
-            {
-              role: "system",
-              content: `Du bist ein erfahrener Universitätsprofessor und Klausurprüfer.
-Bewerte die Antwort eines Studierenden auf eine Klausuraufgabe objektiv und konstruktiv.
-Erkenne Fachbegriffe, beurteile inhaltliche Richtigkeit und Vollständigkeit anhand der Musterlösung und der Vorlesungsfolien.
-Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
-{
-  "score": number (0 bis 5 Punkte, 0.5 Schritte erlaubt),
-  "maxScore": 5,
-  "isCorrect": boolean (true wenn score >= 3),
-  "accuracyComment": "Kurzes Fazit zur inhaltlichen Korrektheit",
-  "detectedKeyTerms": ["Fachbegriff 1", "Fachbegriff 2"],
-  "missingKeyTerms": ["Fehlender Begriff 1"],
-  "feedback": "Detailliertes, wohlwollendes aber präzises Feedback",
-  "sourceRef": "${effectiveSourceRef}"
-}`,
-            },
-            {
-              role: "user",
-              content: `AUFGABE:
-${questionText}
-
-MUSTERLÖSUNG:
-${sampleSolution}
-
-VORLESUNGSMATERIALIEN / ALTKLAUSUREN:
-${ragContext}
-
-ANTWORT DES STUDIERENDEN:
-${userAnswer}`,
-            },
+            { role: "system", content: systemInstruction },
+            { role: "user", content: userPrompt },
           ],
         }),
       });
@@ -113,7 +207,7 @@ ${userAnswer}`,
         const content = JSON.parse(data.choices[0].message.content);
         return {
           ...content,
-          modelUsed: "gpt-4o",
+          modelUsed: "OpenAI gpt-4o",
           sourceRef: content.sourceRef || effectiveSourceRef,
         };
       }
@@ -122,21 +216,23 @@ ${userAnswer}`,
     }
   }
 
-  // --- Intelligent Local Semantic Grading Engine ---
-  // Evaluates text semantics, keyword coverage, and depth of explanation
+  // 3. Intelligent Local Semantic Grading Engine (Fallback)
   const cleanAnswer = userAnswer.trim();
   const lowerAnswer = cleanAnswer.toLowerCase();
-  const lowerSolution = sampleSolution.toLowerCase();
 
   // Extract key concept terms from sample solution
   const potentialTerms = sampleSolution
     .replace(/[.,:;()\[\]"'/\\-]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length >= 4 && !["diese", "durch", "nicht", "sowie", "haben", "einer", "einem", "eines", "unter", "werden", "können", "solche"].includes(w.toLowerCase()));
+    .filter(
+      (w) =>
+        w.length >= 4 &&
+        !["diese", "durch", "nicht", "sowie", "haben", "einer", "einem", "eines", "unter", "werden", "können", "solche"].includes(
+          w.toLowerCase()
+        )
+    );
 
-  // Deduplicate and get top unique terms
   const keyTerms = Array.from(new Set(potentialTerms)).slice(0, 10);
-
   const detectedKeyTerms: string[] = [];
   const missingKeyTerms: string[] = [];
 
@@ -148,7 +244,6 @@ ${userAnswer}`,
     }
   }
 
-  // Calculate length and coverage ratio
   const wordCount = cleanAnswer.split(/\s+/).filter(Boolean).length;
   const coverageRatio = keyTerms.length > 0 ? detectedKeyTerms.length / keyTerms.length : 0.5;
 
@@ -156,13 +251,11 @@ ${userAnswer}`,
   if (wordCount < 5) {
     score = 0.5;
   } else {
-    // base calculation between 1.0 and 5.0
     const rawScore = coverageRatio * 4.0 + (wordCount > 30 ? 1.0 : wordCount > 15 ? 0.6 : 0.2);
     score = Math.min(5, Math.max(0.5, Math.round(rawScore * 2) / 2));
   }
 
   const isCorrect = score >= 3.0;
-
   let accuracyComment = "";
   let feedback = "";
 
@@ -191,7 +284,7 @@ ${userAnswer}`,
 }
 
 /**
- * Generates an exam cheat sheet / summary for a topic
+ * Generates an exam cheat sheet / summary for a topic using Gemini or RAG fallback.
  */
 export async function generateTopicSummary(params: {
   moduleId: string;
@@ -200,11 +293,48 @@ export async function generateTopicSummary(params: {
   apiKey?: string;
   provider?: string;
 }): Promise<SummaryResult> {
-  const { moduleId, topicName, currentSummary } = params;
+  const { moduleId, topicName, currentSummary, apiKey, provider = "gemini" } = params;
   const docs = await searchModuleDocuments(moduleId, topicName, 3);
   const docSources = docs.map((d) => d.documentTitle);
   const contextSnippet = docs.map((d) => d.textSnippet).join("\n\n");
 
+  const isGemini = provider === "gemini" || (Boolean(apiKey) && apiKey!.startsWith("AIzaSy"));
+  const activeGeminiKey: string | undefined = (isGemini && apiKey) ? apiKey : process.env.GEMINI_API_KEY;
+
+  if (activeGeminiKey) {
+    try {
+      const sys = `Du bist ein angesehener Universitätsprofessor.
+Erstelle für Studierende eine erstklassige, klausurrelevante Zusammenfassung (Cheat Sheet) zum Themengebiet "${topicName}".
+Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
+{
+  "summary": "Strukturierter Markdown-Text mit Abschnitten: ### 1. Kernkonzepte & Definitionen\\n\\n### 2. Vor- und Nachteile (Trade-offs)\\n\\n### 3. Typische Klausuraufgaben & Prüfungsfallen",
+  "coreConcepts": ["Kernkonzept 1", "Kernkonzept 2", "Kernkonzept 3", "Kernkonzept 4"],
+  "examTips": ["Prüfungstipp 1", "Prüfungstipp 2", "Prüfungstipp 3"],
+  "sourceRefs": ["Vorlesungsfolien"]
+}`;
+
+      const userPrompt = `Fach/Thema: ${topicName}
+Auszüge aus den Modulunterlagen:
+${contextSnippet || "Standard-Vorlesungsinhalte"}
+
+Vorherige Notizen:
+${currentSummary || "Keine vorhanden."}`;
+
+      const { parsed, modelUsed } = await callGeminiJSON(userPrompt, activeGeminiKey, sys);
+      return {
+        topicName,
+        summary: parsed.summary || "",
+        coreConcepts: Array.isArray(parsed.coreConcepts) ? parsed.coreConcepts : [],
+        examTips: Array.isArray(parsed.examTips) ? parsed.examTips : [],
+        sourceRefs: Array.isArray(parsed.sourceRefs) && parsed.sourceRefs.length ? parsed.sourceRefs : docSources,
+        modelUsed: `Google Gemini (${modelUsed})`,
+      };
+    } catch (err: any) {
+      console.warn("Gemini topic summary failed, using fallback:", err.message);
+    }
+  }
+
+  // Deterministic fallback
   const coreConcepts = [
     `Kernprinzipien & Definitionen zu "${topicName}"`,
     `Vor- und Nachteile sowie Trade-offs in der Praxis`,
@@ -241,4 +371,73 @@ ${
     sourceRefs: docSources.length ? docSources : ["Vorlesungsskript & Altklausuren"],
     modelUsed: "StudyHub AI Engine",
   };
+}
+
+/**
+ * Generates high-yield exam questions using Google Gemini from lecture notes & documents.
+ */
+export async function generateQuestionsWithAI(params: {
+  moduleId: string;
+  topicName?: string;
+  count?: number;
+  apiKey?: string;
+  provider?: string;
+}): Promise<GeneratedQuestion[]> {
+  const { moduleId, topicName = "Klausurschwerpunkte", count = 5, apiKey, provider = "gemini" } = params;
+
+  const isGemini = provider === "gemini" || (Boolean(apiKey) && apiKey!.startsWith("AIzaSy"));
+  const activeGeminiKey: string | undefined = (isGemini && apiKey) ? apiKey : process.env.GEMINI_API_KEY;
+
+  if (!activeGeminiKey) {
+    return [];
+  }
+
+  const docs = await searchModuleDocuments(moduleId, topicName, 4);
+  const contextSnippet = docs.map((d) => `[Dokument: ${d.documentTitle}]:\n${d.textSnippet}`).join("\n\n");
+
+  const sys = `Du bist ein Hochschuldozent und erfahrener Klausurersteller.
+Erstelle genau ${count} anspruchsvolle, abwechslungsreiche Klausurfragen zum Fachgebiet "${topicName}".
+Erstelle eine ausgewogene Mischung aus:
+1. SINGLE_CHOICE (Genau 1 richtige Option aus 4; jede Option hat ein kurzes Erklärungskommentar)
+2. MULTIPLE_CHOICE (2 bis 3 richtige Optionen aus 4 mit Erklärungen)
+3. FREE_TEXT (Klausurtypische Freitextaufgabe mit ausführlicher Musterlösung)
+
+Antworte AUSSCHLIESSLICH im folgenden JSON-Format als valides Array von Objekten:
+[
+  {
+    "type": "SINGLE_CHOICE",
+    "questionText": "Fragestellung...",
+    "options": [
+      { "text": "Option A...", "isCorrect": true, "explanation": "Erklärung..." },
+      { "text": "Option B...", "isCorrect": false, "explanation": "Erklärung..." },
+      { "text": "Option C...", "isCorrect": false, "explanation": "Erklärung..." },
+      { "text": "Option D...", "isCorrect": false, "explanation": "Erklärung..." }
+    ],
+    "sampleSolution": "Kurze Musterlösung",
+    "sourceRef": "Name der Vorlesungsfolie / Thema",
+    "topicName": "${topicName}"
+  }
+]`;
+
+  const userPrompt = `THEMA: ${topicName}
+AUSZÜGE AUS DEN HOCHGELADENEN VORLESUNGSUNTERLAGEN:
+${contextSnippet || "Erstelle anspruchsvolle Universitätsfragen zum Themenbereich " + topicName}`;
+
+  try {
+    const { parsed } = await callGeminiJSON(userPrompt, activeGeminiKey, sys);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.slice(0, count).map((item) => ({
+        type: item.type === "SINGLE_CHOICE" ? "SINGLE_CHOICE" : item.type === "MULTIPLE_CHOICE" ? "MULTIPLE_CHOICE" : "FREE_TEXT",
+        questionText: item.questionText || `Klausurfrage zu ${topicName}`,
+        options: Array.isArray(item.options) ? item.options : undefined,
+        sampleSolution: item.sampleSolution || "Musterlösung",
+        sourceRef: item.sourceRef || `${topicName} (Gemini KI)`,
+        topicName,
+      }));
+    }
+  } catch (err: any) {
+    console.warn("Error generating questions with Gemini:", err.message);
+  }
+
+  return [];
 }

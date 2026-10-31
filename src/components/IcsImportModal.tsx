@@ -197,15 +197,15 @@ export function IcsImportModal({
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  {lang === "de" ? "Studentenkalender (.ics) importieren" : "Import Student Calendar (.ics)"}
+                  {lang === "de" ? "Kalender (.ics) importieren" : "Import Calendar (.ics)"}
                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
                     Auto-Match
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500">
                   {lang === "de"
-                    ? "Vorlesungen & Klausurtermine aus Moodle, HISinOne, Stud.IP, TUMonline etc."
-                    : "Import exams and lectures from your campus portal via iCalendar .ics file."}
+                    ? "Importiere deinen Stundenplan, Termine, Klausuren oder Fristen aus deinem Kalender (.ics)."
+                    : "Import your timetable, schedule, appointments, exams or deadlines from your calendar (.ics)."}
                 </p>
               </div>
             </div>

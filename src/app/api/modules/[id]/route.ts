@@ -98,3 +98,62 @@ export async function GET(
     return NextResponse.json({ error: "Failed to load module" }, { status: 500 });
   }
 }
+
+export async function PATCH(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const moduleId = params.id;
+    const body = await req.json();
+    const {
+      name,
+      code,
+      ects,
+      examDate,
+      examTime,
+      examLocation,
+      examDescription,
+      status,
+      grade,
+    } = body;
+
+    const dataToUpdate: any = {};
+    if (name !== undefined) dataToUpdate.name = name.trim();
+    if (code !== undefined) dataToUpdate.code = code ? code.trim() : null;
+    if (ects !== undefined) dataToUpdate.ects = Number(ects);
+    if (examDate !== undefined) dataToUpdate.examDate = examDate ? new Date(examDate) : null;
+    if (examTime !== undefined) dataToUpdate.examTime = examTime || null;
+    if (examLocation !== undefined) dataToUpdate.examLocation = examLocation || null;
+    if (examDescription !== undefined) dataToUpdate.examDescription = examDescription || null;
+    if (status !== undefined) dataToUpdate.status = status;
+    if (grade !== undefined) dataToUpdate.grade = grade !== null && grade !== "" ? Number(grade) : null;
+
+    const updated = await prisma.module.update({
+      where: { id: moduleId },
+      data: dataToUpdate,
+      include: { semester: true },
+    });
+
+    return NextResponse.json({ success: true, module: updated });
+  } catch (error: any) {
+    console.error("Failed to update module:", error);
+    return NextResponse.json({ error: "Fehler beim Aktualisieren des Moduls" }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const moduleId = params.id;
+    await prisma.module.delete({
+      where: { id: moduleId },
+    });
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("Failed to delete module:", error);
+    return NextResponse.json({ error: "Fehler beim Löschen des Moduls" }, { status: 500 });
+  }
+}

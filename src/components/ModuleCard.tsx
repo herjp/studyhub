@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import {
   Calendar,
@@ -13,9 +13,11 @@ import {
   ArrowRight,
   CheckCircle2,
   AlertTriangle,
+  Pencil,
 } from "lucide-react";
 import { FahrschulBar } from "./FahrschulBar";
 import { CircularProgress } from "./CircularProgress";
+import { EditModuleDialog } from "./EditModuleDialog";
 import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
 
@@ -41,8 +43,15 @@ export interface ModuleData {
   questions?: any[];
 }
 
-export function ModuleCard({ module }: { module: ModuleData }) {
+export function ModuleCard({
+  module,
+  onUpdated,
+}: {
+  module: ModuleData;
+  onUpdated?: () => void;
+}) {
   const { lang, t } = useLanguage();
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const isCompleted = module.status === "COMPLETED";
   const isFailed = module.status === "FAILED";
   const readiness = module.readinessScore ?? 0;
@@ -94,12 +103,26 @@ export function ModuleCard({ module }: { module: ModuleData }) {
             </span>
           </div>
 
-          <span
-            className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusBadge}`}
-          >
-            {isCompleted && <CheckCircle2 className="w-3 h-3" />}
-            {statusLabel}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${statusBadge}`}
+            >
+              {isCompleted && <CheckCircle2 className="w-3 h-3" />}
+              {statusLabel}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                setIsEditOpen(true);
+              }}
+              title={lang === "de" ? "Modul bearbeiten oder löschen" : "Edit or delete course"}
+              className="p-1 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         <Link href={`/module/${module.id}`}>
@@ -186,6 +209,18 @@ export function ModuleCard({ module }: { module: ModuleData }) {
           {t.examTrainer} <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       </div>
+      {/* Edit Module Dialog */}
+      <EditModuleDialog
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        module={module}
+        onUpdated={() => {
+          if (onUpdated) onUpdated();
+        }}
+        onDeleted={() => {
+          if (onUpdated) onUpdated();
+        }}
+      />
     </div>
   );
 }

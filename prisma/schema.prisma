@@ -12,6 +12,7 @@ model User {
   id                String     @id @default(cuid())
   email             String     @unique
   name              String?
+  avatarUrl         String?
   password          String
   twoFactorEnabled  Boolean    @default(false)
   twoFactorCode     String?

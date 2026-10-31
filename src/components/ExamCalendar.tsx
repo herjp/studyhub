@@ -242,11 +242,11 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           {/* Import .ics Calendar */}
           <button
             onClick={() => setIsIcsModalOpen(true)}
-            title={lang === "de" ? "Vorlesungen & Termine aus Campus-Portal (.ics) importieren" : "Import schedule from campus portal (.ics)"}
+            title={lang === "de" ? "Kalenderdatei (.ics) importieren – Termine, Fristen & Klausuren" : "Import calendar (.ics) – appointments, deadlines & exams"}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-sky-50 dark:bg-sky-950/70 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 transition-all shadow-sm"
           >
             <UploadCloud className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-            <span>{lang === "de" ? "📥 .ics importieren" : "📥 Import .ics"}</span>
+            <span>{lang === "de" ? "📥 Kalender (.ics) importieren" : "📥 Import Calendar (.ics)"}</span>
           </button>
 
           <button
