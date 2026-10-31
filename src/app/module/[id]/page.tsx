@@ -33,6 +33,7 @@ import {
   Search,
   AlertCircle,
   RefreshCw,
+  Copy,
 } from "lucide-react";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
 import { FahrschulBar } from "@/components/FahrschulBar";
@@ -132,9 +133,14 @@ function ModuleDetailContent() {
   const [isPastExam, setIsPastExam] = useState(false);
   const [docText, setDocText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadStage, setUploadStage] = useState<string>("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<any>(null);
+  const [editingDoc, setEditingDoc] = useState<{ id: string; title: string; category?: string } | null>(null);
+  const [isSavingDoc, setIsSavingDoc] = useState(false);
+  const [docSearchTerm, setDocSearchTerm] = useState("");
+  const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<{
     file: File;
     name: string;
@@ -144,6 +150,42 @@ function ModuleDetailContent() {
     clientExtractedText?: string;
   } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleSaveDocName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDoc || !editingDoc.title.trim()) return;
+
+    setIsSavingDoc(true);
+    try {
+      const res = await fetch("/api/documents", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingDoc.id,
+          title: editingDoc.title.trim(),
+          category: editingDoc.category,
+        }),
+      });
+
+      if (res.ok) {
+        const updated = await res.json();
+        setModuleData((prev: any) => ({
+          ...prev,
+          documents: prev.documents.map((d: any) =>
+            d.id === updated.id ? { ...d, title: updated.title, category: updated.category } : d
+          ),
+        }));
+        if (previewDoc && previewDoc.id === updated.id) {
+          setPreviewDoc((prev: any) => ({ ...prev, title: updated.title, category: updated.category }));
+        }
+        setEditingDoc(null);
+      }
+    } catch (err) {
+      console.error("Failed to update document name:", err);
+    } finally {
+      setIsSavingDoc(false);
+    }
+  };
 
   // Session Question Count (default from localStorage or 5)
   const [sessionQuestionCount, setSessionQuestionCount] = useState<number>(() => {
@@ -317,17 +359,23 @@ function ModuleDetailContent() {
 
     const effectiveText = docText.trim() || uploadedFile?.clientExtractedText || undefined;
 
-    // Check if large file has no text
-    if (uploadedFile && uploadedFile.file.size > 3.8 * 1024 * 1024 && !effectiveText) {
+    // Check if oversized scan file has no text and cannot fit in payload
+    if (uploadedFile && uploadedFile.file.size > 4.5 * 1024 * 1024 && !effectiveText) {
       setUploadError(
         lang === "de"
-          ? "Dieses PDF ist größer als 3.8 MB und enthält keinen lesbaren Text (reine Scans). Bitte teile es in kleinere Abschnitte auf oder nutze Notizen."
-          : "This PDF exceeds 3.8 MB and contains no readable text. Please split it into smaller parts."
+          ? "Dieses Foto-/Scan-Dokument ist größer als 4.5 MB. Bitte teile es in zwei Abschnitte auf oder lade die Fotos der Seiten einzeln als JPG/PNG hoch."
+          : "This scanned document exceeds 4.5 MB. Please split it or upload page photos directly."
       );
       return;
     }
 
     setIsUploading(true);
+    setUploadStage(
+      uploadedFile?.clientExtractedText
+        ? (lang === "de" ? "Indiziere extrahierte Vorlesungsinhalte..." : "Indexing lecture contents...")
+        : (lang === "de" ? "✨ Gemini Vision analysiert Foto-Seiten & Handschrift..." : "✨ Gemini Vision analyzing document...")
+    );
+
     try {
       const storedProvider = typeof window !== "undefined" ? localStorage.getItem("studyhub_ai_provider") || "gemini" : "gemini";
       const storedKey = typeof window !== "undefined" 
@@ -373,6 +421,7 @@ function ModuleDetailContent() {
       setUploadError(err.message || "Netzwerkfehler beim Hochladen.");
     } finally {
       setIsUploading(false);
+      setUploadStage("");
     }
   };
 
@@ -1000,6 +1049,23 @@ function ModuleDetailContent() {
                     />
                   </div>
 
+                  {isUploading && (
+                    <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 space-y-1.5 animate-in fade-in">
+                      <div className="flex items-center gap-2 font-bold text-xs">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600 dark:text-indigo-400" />
+                        <span>{uploadStage || (lang === "de" ? "Dokument wird verarbeitet..." : "Processing document...")}</span>
+                      </div>
+                      <div className="w-full bg-indigo-200 dark:bg-indigo-900 h-1 rounded-full overflow-hidden">
+                        <div className="h-full bg-indigo-600 rounded-full animate-pulse w-3/4" />
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {uploadedFile?.clientExtractedText
+                          ? (lang === "de" ? "Extrahierter Text wird semantisch indiziert und Prüfungsstoff zugeordnet." : "Extracted text is being indexed.")
+                          : (lang === "de" ? "Gemini analysiert Handschrift, Aufgaben & Folien per Multimodal-OCR." : "Gemini is transcribing handwritten notes & slides.")}
+                      </p>
+                    </div>
+                  )}
+
                   <button
                     type="submit"
                     disabled={isUploading}
@@ -1074,7 +1140,10 @@ function ModuleDetailContent() {
                         key={doc.id}
                         className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 flex items-start justify-between gap-4 shadow-sm hover:shadow transition-all"
                       >
-                        <div className="flex items-start gap-3">
+                        <div
+                          onClick={() => setPreviewDoc(doc)}
+                          className="flex items-start gap-3 cursor-pointer flex-1 min-w-0"
+                        >
                           <div
                             className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
                               isExam
@@ -1084,9 +1153,9 @@ function ModuleDetailContent() {
                           >
                             <FileText className="w-4 h-4" />
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                              <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate">
                                 {doc.title}
                               </h4>
                               {isExam ? (
@@ -1116,20 +1185,26 @@ function ModuleDetailContent() {
                         </div>
 
                         <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {doc.parsedText && (
-                            <button
-                              type="button"
-                              onClick={() => setPreviewDoc(doc)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-                              title={lang === "de" ? "Textauszug ansehen" : "Preview text"}
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setEditingDoc({ id: doc.id, title: doc.title, category: doc.category })}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            title={lang === "de" ? "Name umbenennen" : "Rename document"}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewDoc(doc)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            title={lang === "de" ? "Dokument ansehen & Text prüfen" : "View document & inspect text"}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleDeleteDocument(doc.id)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
                             title={t.delete}
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1142,25 +1217,202 @@ function ModuleDetailContent() {
               </div>
             </div>
 
-            {/* Document Preview Modal */}
+            {/* Document Preview & Inspector Modal */}
             {previewDoc && (
               <Portal>
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-                  <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 my-auto">
+                  <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 my-auto flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95">
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800 mb-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                              {previewDoc.title}
+                            </h4>
+                            <button
+                              type="button"
+                              onClick={() => setEditingDoc({ id: previewDoc.id, title: previewDoc.title, category: previewDoc.category })}
+                              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                              {lang === "de" ? "Umbenennen" : "Rename"}
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-slate-400">
+                            {previewDoc.fileName || "Dokument"} • {previewDoc.category === "EXAM_PAST" ? "Altklausur" : "Vorlesungsunterlage"}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => { setPreviewDoc(null); setDocSearchTerm(""); }}
+                        className="text-slate-400 hover:text-slate-600 font-bold p-1 rounded-lg"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Stats & Search Toolbar */}
+                    <div className="flex items-center justify-between gap-2 mb-3 flex-wrap text-xs">
+                      <div className="flex items-center gap-2 text-slate-500 text-[11px]">
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          {previewDoc.parsedText ? `${previewDoc.parsedText.length.toLocaleString()} Zeichen` : "0 Zeichen"}
+                        </span>
+                        <span>•</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> {t.indexedBadge}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder={lang === "de" ? "Im Text suchen..." : "Search text..."}
+                            value={docSearchTerm}
+                            onChange={(e) => setDocSearchTerm(e.target.value)}
+                            className="pl-8 pr-2.5 py-1 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 w-36 sm:w-48"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (previewDoc.parsedText) {
+                              navigator.clipboard.writeText(previewDoc.parsedText);
+                              setCopiedDocId(previewDoc.id);
+                              setTimeout(() => setCopiedDocId(null), 2000);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors"
+                        >
+                          {copiedDocId === previewDoc.id ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              <span>{lang === "de" ? "Kopiert!" : "Copied!"}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>{lang === "de" ? "Kopieren" : "Copy"}</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Text View */}
+                    <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                      <pre className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-line font-mono leading-relaxed select-text">
+                        {previewDoc.parsedText
+                          ? (docSearchTerm.trim()
+                              ? previewDoc.parsedText
+                                  .split("\n")
+                                  .filter((line: string) => line.toLowerCase().includes(docSearchTerm.toLowerCase()))
+                                  .join("\n") || `Keine Treffer für "${docSearchTerm}" gefunden.`
+                              : previewDoc.parsedText)
+                          : "Kein extrahierter Text vorhanden."}
+                      </pre>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleDeleteDocument(previewDoc.id);
+                          setPreviewDoc(null);
+                        }}
+                        className="text-rose-600 hover:text-rose-700 font-semibold flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        {t.delete}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setPreviewDoc(null); setDocSearchTerm(""); }}
+                        className="px-4 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200"
+                      >
+                        {lang === "de" ? "Schließen" : "Close"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </Portal>
+            )}
+
+            {/* Rename Document Modal */}
+            {editingDoc && (
+              <Portal>
+                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                  <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95">
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                        {t.ragSnippetModalTitle} {previewDoc.title}
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <Edit2 className="w-4 h-4 text-indigo-600" />
+                        {lang === "de" ? "Unterlage umbenennen" : "Rename Document"}
                       </h4>
                       <button
-                        onClick={() => setPreviewDoc(null)}
+                        type="button"
+                        onClick={() => setEditingDoc(null)}
                         className="text-slate-400 hover:text-slate-600 font-bold"
                       >
                         ✕
                       </button>
                     </div>
-                    <pre className="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/80 p-4 rounded-2xl whitespace-pre-line max-h-96 overflow-y-auto font-mono">
-                      {previewDoc.parsedText}
-                    </pre>
+
+                    <form onSubmit={handleSaveDocName} className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          {lang === "de" ? "Name / Thema des Dokuments" : "Document Title"}
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={editingDoc.title}
+                          onChange={(e) => setEditingDoc({ ...editingDoc, title: e.target.value })}
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          {t.categoryLabel}
+                        </label>
+                        <select
+                          value={editingDoc.category || "LECTURE_SLIDES"}
+                          onChange={(e) => setEditingDoc({ ...editingDoc, category: e.target.value })}
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                        >
+                          <option value="LECTURE_SLIDES">{t.catSlides}</option>
+                          <option value="EXAM_PAST">{t.pastExamBadge}</option>
+                          <option value="EXERCISE">{t.catExercises}</option>
+                          <option value="LITERATURE">{t.catLiterature}</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingDoc(null)}
+                          className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                        >
+                          {lang === "de" ? "Abbrechen" : "Cancel"}
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSavingDoc}
+                          className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white shadow-sm flex items-center gap-1.5"
+                        >
+                          {isSavingDoc ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                          {lang === "de" ? "Speichern" : "Save"}
+                        </button>
+                      </div>
+                    </form>
                   </div>
                 </div>
               </Portal>

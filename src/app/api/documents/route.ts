@@ -200,3 +200,51 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "Fehler beim Löschen des Dokuments" }, { status: 500 });
   }
 }
+
+export async function PUT(req: Request) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Nicht autorisiert" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { id, title, category, isPastExam } = body;
+
+    const trimmedTitle = typeof title === "string" ? title.trim() : "";
+    if (!id || !trimmedTitle) {
+      return NextResponse.json({ error: "Dokument-ID und Titel sind erforderlich" }, { status: 400 });
+    }
+
+    const doc = await prisma.document.findUnique({
+      where: { id },
+      include: {
+        module: {
+          include: {
+            semester: true,
+          },
+        },
+      },
+    });
+
+    if (!doc || doc.module.semester.userId !== user.id) {
+      return NextResponse.json({ error: "Dokument nicht gefunden oder nicht autorisiert" }, { status: 403 });
+    }
+
+    const safeTitle = sanitizePostgresString(trimmedTitle);
+    const updated = await prisma.document.update({
+      where: { id },
+      data: {
+        title: safeTitle,
+        category: isPastExam
+          ? DocumentCategory.EXAM_PAST
+          : (category as DocumentCategory) || doc.category,
+      },
+    });
+
+    return NextResponse.json(updated);
+  } catch (error: any) {
+    console.error("Failed to update document:", error);
+    return NextResponse.json({ error: error.message || "Fehler beim Aktualisieren des Dokuments" }, { status: 500 });
+  }
+}
