@@ -264,6 +264,101 @@ export async function recognizeTextWithTesseract(
 }
 
 /**
+ * Automatically extracts and suggests a concise, human-readable document title
+ * from the actual textual contents of a PDF, lecture slide, or exam.
+ * Filters out screenshot UI noise (time, battery, navigation tabs), institution boilerplate,
+ * and prioritizes Chapter headings, Case Study numbers, Exam headers, and Core topics.
+ */
+export function suggestDocumentTitleFromText(text: string, fallbackFileName: string = ""): string {
+  if (!text || !text.trim()) return fallbackFileName;
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  // Filter out noise / UI artifacts / boilerplate
+  const isNoise = (l: string) => {
+    if (l.length < 3) return true;
+    if (/^\[Seite\s*\d+\]/i.test(l)) return true;
+    if (/^\d{1,2}:\d{2}/.test(l)) return true; // time like 14:51
+    if (/^(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\b/i.test(l)) return true;
+    if (/^\d+\s*%/i.test(l) || /%\s*[A-Z0-9]?$/i.test(l)) return true; // battery
+    if (/^VL\s*\d+$/i.test(l)) return true;
+    if (/^TU\s*WIEN$/i.test(l) || l === "WIEN" || l === "TU" || l === "im" || l === "IS") return true;
+    if (/^(Name|Matr\.?\s*Nr|Datum|Unterschrift|Punkte|Bearbeitungszeit|Bitte schreiben Sie|Viel Erfolg)\b/i.test(l)) return true;
+    if (/^--+/.test(l) || /^[•\-_=*~]+$/.test(l)) return true;
+    if (/^(Institut für|Research Group|Academy for Continuing Education)\b/i.test(l)) return true;
+    return false;
+  };
+
+  const cleanLines = lines.filter((l) => !isNoise(l));
+
+  // 1. Look for explicit keyword patterns (Fallstudie, Kapitel, Vorlesung, Übung, Klausur)
+  for (let i = 0; i < Math.min(cleanLines.length, 15); i++) {
+    const line = cleanLines[i];
+
+    // Case Study: e.g. "Fall 9 — Der Umbau beginnt vor dem Umbau"
+    const fallMatch = line.match(/^Fall\s*\d+[:\s–—-]+(.+)/i);
+    if (fallMatch) {
+      const nextLine = cleanLines[i + 1];
+      if (nextLine && nextLine.length < 45 && !isNoise(nextLine) && !nextLine.includes(".")) {
+        const full = `${line.replace(/\s*[-–—]\s*/, ": ")} (${nextLine})`;
+        return full.length > 65 ? full.slice(0, 62) + "..." : full;
+      }
+      return line.replace(/\s*[-–—]\s*/, ": ");
+    }
+
+    // Chapters / Lecture / Exercise: e.g. "Kapitel 4: Transaktionen & Isolation"
+    if (/^(Kapitel|Vorlesung|Übung|Session|Unit|Modul)\s*\d*[:\s–—-]+/i.test(line)) {
+      return line.length > 65 ? line.slice(0, 62) + "..." : line;
+    }
+
+    // Exam headers: e.g. "Abschlussklausur, 2. Dezember 2025"
+    if (/\b(Abschlussklausur|Altklausur|Klausur|Prüfung|Midterm|Final Exam)\b/i.test(line)) {
+      const prevLine = cleanLines[i - 1];
+      if (
+        prevLine &&
+        prevLine.length > 6 &&
+        prevLine.length < 45 &&
+        !prevLine.includes("Prof") &&
+        !prevLine.includes("TU")
+      ) {
+        const full = `${prevLine} - ${line}`;
+        return full.length > 65 ? full.slice(0, 62) + "..." : full;
+      }
+      return line;
+    }
+  }
+
+  // 2. Look for book titles like "Erfolgreich in turbulenten Zeiten: Leadership..."
+  for (const line of cleanLines.slice(0, 10)) {
+    const bookMatch = line.match(
+      /(?:Auflage\s+)?([A-ZÄÖÜ][^.]{12,65}(?:Leadership|Management|Informatik|Systeme|Architektur|Engineering|Entwicklung|Zeiten)[^.]{0,35})/i
+    );
+    if (bookMatch) {
+      const t = bookMatch[1].trim();
+      return t.length > 65 ? t.slice(0, 62) + "..." : t;
+    }
+  }
+
+  // 3. Fallback: First substantive headline
+  for (const line of cleanLines.slice(0, 8)) {
+    if (
+      line.length >= 8 &&
+      line.length <= 65 &&
+      !line.endsWith(".") &&
+      !line.toLowerCase().includes("institut") &&
+      !line.toLowerCase().includes("management science")
+    ) {
+      return line;
+    }
+  }
+
+  return fallbackFileName;
+}
+
+/**
  * Strips null bytes (0x00) and dangerous non-printable control characters
  * to ensure compatibility with PostgreSQL text / varchar columns.
  */

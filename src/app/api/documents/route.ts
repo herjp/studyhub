@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { DocumentCategory } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { extractDocumentWithAI, extractDocumentWithGemini } from "@/lib/ai-service";
-import { extractPdfTextFromBuffer, sanitizePostgresString } from "@/lib/pdf-extractor";
+import { extractPdfTextFromBuffer, sanitizePostgresString, suggestDocumentTitleFromText } from "@/lib/pdf-extractor";
 
 export async function POST(req: Request) {
   try {
@@ -115,8 +115,24 @@ export async function POST(req: Request) {
       finalParsedText = `[Vorlesungsdokument: ${trimmedTitle}]\nDokument für das Modul ${mod.name} (${fileName || trimmedTitle}). Enthält Prüfungsschwerpunkte für die Klausurvorbereitung.`;
     }
 
-    const safeTitle = sanitizePostgresString(trimmedTitle);
-    const safeFileName = sanitizePostgresString(fileName || `${trimmedTitle.toLowerCase().replace(/\s+/g, "_")}.pdf`);
+    let effectiveDocTitle = trimmedTitle;
+    if (
+      (!effectiveDocTitle ||
+        /^media[_\s-]?\d+/i.test(effectiveDocTitle) ||
+        /^img[_\s-]?\d+/i.test(effectiveDocTitle) ||
+        /^scan[_\s-]?\d+/i.test(effectiveDocTitle) ||
+        /^screenshot/i.test(effectiveDocTitle) ||
+        effectiveDocTitle.toLowerCase() === fileName?.toLowerCase()) &&
+      extractedText
+    ) {
+      const autoTitle = suggestDocumentTitleFromText(extractedText, trimmedTitle);
+      if (autoTitle && autoTitle.trim().length > 3) {
+        effectiveDocTitle = autoTitle.trim();
+      }
+    }
+
+    const safeTitle = sanitizePostgresString(effectiveDocTitle);
+    const safeFileName = sanitizePostgresString(fileName || `${effectiveDocTitle.toLowerCase().replace(/\s+/g, "_")}.pdf`);
     const safeParsedText = sanitizePostgresString(finalParsedText);
 
     // 3. Create document record (guaranteed safe against Postgres 22021 null byte error)

@@ -52,8 +52,29 @@ import {
   extractPdfTextWithPdfJs,
   renderPdfToCompressedJpeg,
   recognizeTextWithTesseract,
+  suggestDocumentTitleFromText,
   isValidPdfText,
 } from "@/lib/pdf-extractor";
+
+function isGenericDocTitle(title: string, filename?: string): boolean {
+  if (!title || !title.trim()) return true;
+  const t = title.trim().toLowerCase();
+  if (filename) {
+    const rawF = filename.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").trim().toLowerCase();
+    if (t === rawF) return true;
+  }
+  if (/^media[_\s-]?\d+/i.test(t)) return true;
+  if (/^img[_\s-]?\d+/i.test(t)) return true;
+  if (/^scan[_\s-]?\d+/i.test(t)) return true;
+  if (/^screenshot[_\s-]?\d+/i.test(t)) return true;
+  if (/^image[_\s-]?\d+/i.test(t)) return true;
+  if (/^foto[_\s-]?\d+/i.test(t)) return true;
+  if (/^dokument[_\s-]?\d*/i.test(t)) return true;
+  if (/^document[_\s-]?\d*/i.test(t)) return true;
+  if (/^datei[_\s-]?\d*/i.test(t)) return true;
+  if (/^\d{6,}$/.test(t)) return true;
+  return false;
+}
 
 /**
  * Optimizes images for OCR and AI analysis while preserving 100% pixel sharpness.
@@ -156,6 +177,7 @@ function ModuleDetailContent() {
 
   // Document upload state
   const [docTitle, setDocTitle] = useState("");
+  const [suggestedDocTitle, setSuggestedDocTitle] = useState<string>("");
   const [docCategory, setDocCategory] = useState("LECTURE_SLIDES");
   const [isPastExam, setIsPastExam] = useState(false);
   const [docText, setDocText] = useState("");
@@ -289,10 +311,20 @@ function ModuleDetailContent() {
         recognizeTextWithTesseract(file)
           .then((ocrText) => {
             if (ocrText && ocrText.trim().length > 20) {
+              const trimmed = ocrText.trim();
               setUploadedFile((prev) =>
-                prev ? { ...prev, clientExtractedText: ocrText.trim() } : prev
+                prev ? { ...prev, clientExtractedText: trimmed } : prev
               );
-              setDocText(ocrText.trim());
+              setDocText(trimmed);
+
+              // Auto-suggest document title from extracted text
+              const detected = suggestDocumentTitleFromText(trimmed, cleanName);
+              if (detected && detected !== cleanName) {
+                setSuggestedDocTitle(detected);
+                setDocTitle((curr) =>
+                  isGenericDocTitle(curr, file.name) ? detected : curr
+                );
+              }
             }
           })
           .catch((err) => console.warn("Background OCR:", err));
@@ -343,6 +375,15 @@ function ModuleDetailContent() {
         mimeType: file.type || "application/pdf",
         clientExtractedText: clientText,
       });
+
+      // Auto-suggest document title from digital PDF text
+      const detected = suggestDocumentTitleFromText(clientText, cleanName);
+      if (detected && detected !== cleanName) {
+        setSuggestedDocTitle(detected);
+        if (isGenericDocTitle(docTitle, file.name) || !docTitle.trim() || docTitle === cleanName) {
+          setDocTitle(detected);
+        }
+      }
       return;
     }
 
@@ -366,10 +407,19 @@ function ModuleDetailContent() {
           recognizeTextWithTesseract(`data:${rendered.mimeType};base64,${rendered.base64}`)
             .then((ocrText) => {
               if (ocrText && ocrText.trim().length > 20) {
+                const trimmed = ocrText.trim();
                 setUploadedFile((prev) =>
-                  prev ? { ...prev, clientExtractedText: ocrText.trim() } : prev
+                  prev ? { ...prev, clientExtractedText: trimmed } : prev
                 );
-                setDocText(ocrText.trim());
+                setDocText(trimmed);
+
+                const detected = suggestDocumentTitleFromText(trimmed, cleanName);
+                if (detected && detected !== cleanName) {
+                  setSuggestedDocTitle(detected);
+                  setDocTitle((curr) =>
+                    isGenericDocTitle(curr, file.name) ? detected : curr
+                  );
+                }
               }
             })
             .catch((err) => console.warn("Background PDF OCR:", err));
@@ -601,6 +651,7 @@ function ModuleDetailContent() {
             : `✓ "${effectiveTitle}" successfully uploaded and indexed! (${data.extractedChars || 0} characters parsed)`
         );
         setDocTitle("");
+        setSuggestedDocTitle("");
         setDocText("");
         setUploadedFile(null);
         setIsPastExam(false);
@@ -1213,16 +1264,37 @@ function ModuleDetailContent() {
 
                 <form onSubmit={handleUploadDocument} className="space-y-3.5">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      {t.uploadDocNameLabel}
-                    </label>
-                    <input
-                      type="text"
-                      placeholder={t.uploadDocNamePlaceholder}
-                      value={docTitle}
-                      onChange={(e) => setDocTitle(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                    />
+                    <div className="flex items-center justify-between gap-1 mb-1 flex-wrap">
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        {t.uploadDocNameLabel}
+                      </label>
+                      {suggestedDocTitle && docTitle !== suggestedDocTitle && (
+                        <button
+                          type="button"
+                          onClick={() => setDocTitle(suggestedDocTitle)}
+                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Sparkles className="w-3 h-3 text-indigo-500" />
+                          {lang === "de" ? "Vorschlag übernehmen:" : "Apply suggested title:"} „{suggestedDocTitle}“
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder={suggestedDocTitle || t.uploadDocNamePlaceholder}
+                        value={docTitle}
+                        onChange={(e) => setDocTitle(e.target.value)}
+                        className={`w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 ${
+                          suggestedDocTitle && docTitle === suggestedDocTitle ? "pr-28" : ""
+                        }`}
+                      />
+                      {suggestedDocTitle && docTitle === suggestedDocTitle && (
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-lg pointer-events-none shadow-2xs">
+                          <CheckCircle2 className="w-3 h-3" /> {lang === "de" ? "Aus Inhalt erkannt" : "From content"}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div>
@@ -1321,6 +1393,7 @@ function ModuleDetailContent() {
                             onClick={(e) => {
                               e.stopPropagation();
                               setUploadedFile(null);
+                              setSuggestedDocTitle("");
                             }}
                             className="text-xs font-bold text-slate-400 hover:text-rose-500 p-1"
                           >
