@@ -214,6 +214,56 @@ export async function renderPdfToCompressedJpeg(
 }
 
 /**
+ * Universal browser-side OCR engine using Tesseract.js.
+ * Runs directly in WebAssembly inside the client browser.
+ * Extracts genuine German / English lecture text from photos, scans, and screenshots
+ * completely offline with ZERO API key required!
+ */
+export async function recognizeTextWithTesseract(
+  imageSource: File | Blob | string | HTMLCanvasElement
+): Promise<string> {
+  if (typeof window === "undefined") return "";
+
+  // Ensure Tesseract.js script is loaded
+  if (!(window as any).Tesseract) {
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector('script[data-tesseract="true"]');
+      if (existing) {
+        existing.addEventListener("load", () => resolve());
+        existing.addEventListener("error", reject);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "/tesseract.min.js";
+      script.setAttribute("data-tesseract", "true");
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => {
+        // Fallback to CDN if local bundle fails
+        const cdnScript = document.createElement("script");
+        cdnScript.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+        cdnScript.onload = () => resolve();
+        cdnScript.onerror = reject;
+        document.head.appendChild(cdnScript);
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  const Tesseract = (window as any).Tesseract;
+  if (!Tesseract) return "";
+
+  try {
+    const result = await Tesseract.recognize(imageSource, "deu+eng");
+    const raw = result?.data?.text || "";
+    return sanitizePostgresString(raw);
+  } catch (err) {
+    console.warn("Tesseract browser OCR fallback:", err);
+    return "";
+  }
+}
+
+/**
  * Strips null bytes (0x00) and dangerous non-printable control characters
  * to ensure compatibility with PostgreSQL text / varchar columns.
  */

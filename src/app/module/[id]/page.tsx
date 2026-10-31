@@ -51,22 +51,40 @@ import {
   extractPdfTextFromArrayBuffer,
   extractPdfTextWithPdfJs,
   renderPdfToCompressedJpeg,
+  recognizeTextWithTesseract,
   isValidPdfText,
 } from "@/lib/pdf-extractor";
 
 /**
- * Automatically downsizes and compresses large smartphone / high-res photos
- * to a lightweight JPEG (max 2048px, quality 0.85) for instant upload and Gemini Vision OCR.
+ * Optimizes images for OCR and AI analysis while preserving 100% pixel sharpness.
+ * For compact files (< 2.5 MB, e.g. iPad screenshots), preserves original resolution and format.
  */
 async function compressImageForUpload(
   file: File
 ): Promise<{ base64: string; mimeType: string; sizeStr: string }> {
+  // If image is already compact (< 2.5 MB), preserve crystal-clear pixel quality!
+  if (file.size <= 2.5 * 1024 * 1024) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const rawUrl = e.target?.result as string;
+        const cleanBase64 = rawUrl.replace(/^data:[^;]+;base64,/, "");
+        resolve({
+          base64: cleanBase64,
+          mimeType: file.type || "image/png",
+          sizeStr: `${Math.round(file.size / 1024)} KB (HD Original)`,
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   return new Promise((resolve) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const MAX_DIM = 1200;
+      const MAX_DIM = 2048;
       let width = img.width;
       let height = img.height;
 
@@ -86,30 +104,35 @@ async function compressImageForUpload(
       const ctx = canvas.getContext("2d");
       if (!ctx) {
         const reader = new FileReader();
-        reader.onload = (e) =>
+        reader.onload = (e) => {
+          const rawUrl = e.target?.result as string;
           resolve({
-            base64: e.target?.result as string,
+            base64: rawUrl.replace(/^data:[^;]+;base64,/, ""),
             mimeType: file.type || "image/jpeg",
             sizeStr: `${Math.round(file.size / 1024)} KB`,
           });
+        };
         reader.readAsDataURL(file);
         return;
       }
       ctx.drawImage(img, 0, 0, width, height);
-      const compressedBase64 = canvas.toDataURL("image/jpeg", 0.70);
-      const approxBytes = Math.round((compressedBase64.length * 3) / 4);
-      const sizeStr = `${Math.round(approxBytes / 1024)} KB (Foto komprimiert)`;
-      resolve({ base64: compressedBase64, mimeType: "image/jpeg", sizeStr });
+      const compressedBase64 = canvas.toDataURL("image/jpeg", 0.85);
+      const cleanBase64 = compressedBase64.replace(/^data:image\/jpeg;base64,/, "");
+      const approxBytes = Math.round((cleanBase64.length * 3) / 4);
+      const sizeStr = `${Math.round(approxBytes / 1024)} KB (HD optimiert)`;
+      resolve({ base64: cleanBase64, mimeType: "image/jpeg", sizeStr });
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
       const reader = new FileReader();
-      reader.onload = (e) =>
+      reader.onload = (e) => {
+        const rawUrl = e.target?.result as string;
         resolve({
-          base64: e.target?.result as string,
+          base64: rawUrl.replace(/^data:[^;]+;base64,/, ""),
           mimeType: file.type || "image/jpeg",
           sizeStr: `${Math.round(file.size / 1024)} KB`,
         });
+      };
       reader.readAsDataURL(file);
     };
     img.src = url;
@@ -261,6 +284,19 @@ function ModuleDetailContent() {
           mimeType: compressed.mimeType,
           clientExtractedText: undefined,
         });
+
+        // Trigger in-browser OCR (Tesseract.js) to extract German / English lecture text immediately
+        recognizeTextWithTesseract(file)
+          .then((ocrText) => {
+            if (ocrText && ocrText.trim().length > 20) {
+              setUploadedFile((prev) =>
+                prev ? { ...prev, clientExtractedText: ocrText.trim() } : prev
+              );
+              setDocText(ocrText.trim());
+            }
+          })
+          .catch((err) => console.warn("Background OCR:", err));
+
         return;
       } catch (err) {
         console.warn("Client photo compression fallback:", err);
@@ -325,6 +361,19 @@ function ModuleDetailContent() {
             mimeType: rendered.mimeType,
             clientExtractedText: undefined,
           });
+
+          // Run browser OCR on rendered scan image as well
+          recognizeTextWithTesseract(`data:${rendered.mimeType};base64,${rendered.base64}`)
+            .then((ocrText) => {
+              if (ocrText && ocrText.trim().length > 20) {
+                setUploadedFile((prev) =>
+                  prev ? { ...prev, clientExtractedText: ocrText.trim() } : prev
+                );
+                setDocText(ocrText.trim());
+              }
+            })
+            .catch((err) => console.warn("Background PDF OCR:", err));
+
           return;
         }
       } catch (renderErr) {
@@ -1294,14 +1343,16 @@ function ModuleDetailContent() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      {lang === "de" ? "Zusätzliche Notizen oder Text (optional)" : "Additional Notes or Text (optional)"}
+                      {lang === "de"
+                        ? (docText.trim() ? "Extrahierter / bearbeitbarer Vorlesungstext:" : "Zusätzliche Notizen oder Text (optional)")
+                        : (docText.trim() ? "Extracted / Editable Lecture Text:" : "Additional Notes or Text (optional)")}
                     </label>
                     <textarea
-                      rows={2}
+                      rows={docText.trim().length > 80 ? 5 : 2}
                       placeholder={t.docTextContentPlaceholder}
                       value={docText}
                       onChange={(e) => setDocText(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-[11px]"
                     />
                   </div>
 
