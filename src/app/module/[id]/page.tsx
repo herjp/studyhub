@@ -32,6 +32,7 @@ import {
   Gauge,
   Search,
   AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
 import { FahrschulBar } from "@/components/FahrschulBar";
@@ -65,6 +66,8 @@ function ModuleDetailContent() {
   const [isPastExam, setIsPastExam] = useState(false);
   const [docText, setDocText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<any>(null);
   const [uploadedFile, setUploadedFile] = useState<{
     file: File;
@@ -85,13 +88,25 @@ function ModuleDetailContent() {
   });
 
   const handleFileSelected = (file: File) => {
-    if (!docTitle) {
-      const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+    setUploadError(null);
+    setUploadSuccess(null);
+
+    // Auto-populate document title from filename
+    const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+    if (!docTitle.trim()) {
       setDocTitle(cleanName);
     }
 
     const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
     const sizeStr = file.size > 1024 * 1024 ? `${sizeMB} MB` : `${Math.round(file.size / 1024)} KB`;
+
+    if (file.size > 4.2 * 1024 * 1024) {
+      setUploadError(
+        lang === "de"
+          ? `Die Datei "${file.name}" ist ${sizeStr} groß. Der Server erlaubt maximal 4 MB pro Upload. Bitte komprimiere das PDF kurz oder lade einzelne Foliensätze hoch.`
+          : `File "${file.name}" is ${sizeStr}. Maximum upload size is 4 MB. Please compress the PDF.`
+      );
+    }
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -181,7 +196,27 @@ function ModuleDetailContent() {
   // Handle Document Upload
   const handleUploadDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!docTitle.trim()) return;
+    setUploadError(null);
+    setUploadSuccess(null);
+
+    const effectiveTitle = docTitle.trim() || uploadedFile?.name?.replace(/\.[^/.]+$/, "") || "";
+    if (!effectiveTitle) {
+      setUploadError(
+        lang === "de"
+          ? "Bitte gib einen Namen für das Dokument ein oder wähle eine Datei aus."
+          : "Please enter a document title or select a file."
+      );
+      return;
+    }
+
+    if (uploadedFile && uploadedFile.file.size > 4.2 * 1024 * 1024) {
+      setUploadError(
+        lang === "de"
+          ? "Die Datei ist größer als 4 MB (Vercel-Uploadgrenze). Bitte komprimiere die Datei oder teile sie in Abschnitte auf."
+          : "File exceeds the 4 MB upload limit. Please compress it or split into parts."
+      );
+      return;
+    }
 
     setIsUploading(true);
     try {
@@ -195,7 +230,7 @@ function ModuleDetailContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           moduleId,
-          title: docTitle.trim(),
+          title: effectiveTitle,
           category: isPastExam ? "EXAM_PAST" : docCategory,
           isPastExam,
           fileName: uploadedFile?.name,
@@ -207,15 +242,26 @@ function ModuleDetailContent() {
         }),
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (res.ok) {
+        setUploadSuccess(
+          lang === "de"
+            ? `✓ "${effectiveTitle}" erfolgreich hochgeladen und indexiert! (${data.extractedChars || 0} Zeichen Text erfasst)`
+            : `✓ "${effectiveTitle}" successfully uploaded and indexed! (${data.extractedChars || 0} characters parsed)`
+        );
         setDocTitle("");
         setDocText("");
         setUploadedFile(null);
         setIsPastExam(false);
         fetchModule();
+        setTimeout(() => setUploadSuccess(null), 8000);
+      } else {
+        setUploadError(data.error || "Fehler beim Hochladen des Dokuments. Bitte prüfe deine Anmeldung.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setUploadError(err.message || "Netzwerkfehler beim Hochladen.");
     } finally {
       setIsUploading(false);
     }
@@ -688,6 +734,20 @@ function ModuleDetailContent() {
                     : "Upload lecture slides, notes or past exams. The RAG pipeline indexes the text automatically for precise citations."}
                 </p>
 
+                {uploadSuccess && (
+                  <div className="mb-3.5 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold text-emerald-800 dark:text-emerald-200 flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                    <span>{uploadSuccess}</span>
+                  </div>
+                )}
+
+                {uploadError && (
+                  <div className="mb-3.5 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-semibold text-rose-800 dark:text-rose-200 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                    <span>{uploadError}</span>
+                  </div>
+                )}
+
                 <form onSubmit={handleUploadDocument} className="space-y-3.5">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -695,7 +755,6 @@ function ModuleDetailContent() {
                     </label>
                     <input
                       type="text"
-                      required
                       placeholder={t.uploadDocNamePlaceholder}
                       value={docTitle}
                       onChange={(e) => setDocTitle(e.target.value)}
@@ -822,10 +881,19 @@ function ModuleDetailContent() {
                   <button
                     type="submit"
                     disabled={isUploading}
-                    className="w-full py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all"
+                    className="w-full py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all"
                   >
-                    <Upload className="w-3.5 h-3.5" />
-                    {isUploading ? t.uploadingAndIndexing : t.uploadAndIndexBtn}
+                    {isUploading ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        {t.uploadingAndIndexing}
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-3.5 h-3.5" />
+                        {t.uploadAndIndexBtn}
+                      </>
+                    )}
                   </button>
                 </form>
               </div>

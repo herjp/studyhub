@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { DocumentCategory } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { extractDocumentWithGemini } from "@/lib/ai-service";
-import { PDFParse } from "pdf-parse";
+import { extractPdfTextFromBuffer } from "@/lib/pdf-extractor";
 
 export async function POST(req: Request) {
   try {
@@ -29,7 +29,8 @@ export async function POST(req: Request) {
       provider,
     } = body;
 
-    if (!moduleId || !title) {
+    const trimmedTitle = typeof title === "string" ? title.trim() : "";
+    if (!moduleId || !trimmedTitle) {
       return NextResponse.json(
         { error: "Modul-ID und Dokumententitel sind erforderlich" },
         { status: 400 }
@@ -55,46 +56,49 @@ export async function POST(req: Request) {
 
     let extractedText = "";
 
-    // 1. If fileBase64 is provided (PDF, PNG, JPEG, etc.)
+    // 1. Process uploaded file (PDF, PNG, JPEG, etc.)
     if (fileBase64 && typeof fileBase64 === "string") {
       const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, "");
       const effectiveMime = mimeType || "application/pdf";
+      const isPdf = effectiveMime === "application/pdf" || (fileName && fileName.endsWith(".pdf"));
 
-      // Try Gemini multimodal extraction first
-      try {
-        const geminiResult = await extractDocumentWithGemini({
-          fileBase64: cleanBase64,
-          mimeType: effectiveMime,
-          title,
-          apiKey,
-          provider,
-        });
-
-        if (geminiResult && geminiResult.trim().length > 0) {
-          extractedText = geminiResult;
-        }
-      } catch (geminiErr: any) {
-        console.warn("Gemini multimodal extraction fallback:", geminiErr.message);
-      }
-
-      // If Gemini did not return text and it's a PDF, extract via PDFParse
-      if (!extractedText && effectiveMime === "application/pdf") {
+      // A) For PDFs: Use robust zero-worker stream parser first
+      if (isPdf) {
         try {
           const buffer = Buffer.from(cleanBase64, "base64");
-          const parser = new PDFParse({ data: buffer });
-          const pdfResult = await parser.getText();
-          if (pdfResult && pdfResult.text) {
-            extractedText = pdfResult.text.trim();
+          const nativeExtracted = extractPdfTextFromBuffer(buffer);
+          if (nativeExtracted && nativeExtracted.trim().length > 30) {
+            extractedText = nativeExtracted.trim();
           }
-          await parser.destroy();
         } catch (pdfErr: any) {
-          console.warn("Local PDFParse error:", pdfErr.message);
+          console.warn("Native PDF stream extraction fallback:", pdfErr.message);
         }
       }
 
-      // If it's an image without Gemini
+      // B) If PDF had no embedded text (scanned slides/images) OR if file is an image: Try Gemini Multimodal OCR
+      const activeGeminiKey = apiKey || process.env.GEMINI_API_KEY;
+      if (!extractedText && activeGeminiKey) {
+        try {
+          const geminiResult = await extractDocumentWithGemini({
+            fileBase64: cleanBase64,
+            mimeType: effectiveMime,
+            fileName: fileName || `${trimmedTitle}.pdf`,
+            title: trimmedTitle,
+            apiKey: activeGeminiKey,
+            provider,
+          });
+
+          if (geminiResult && geminiResult.trim().length > 0) {
+            extractedText = geminiResult.trim();
+          }
+        } catch (geminiErr: any) {
+          console.warn("Gemini multimodal OCR fallback:", geminiErr.message);
+        }
+      }
+
+      // C) If still no text (e.g. image without Gemini key)
       if (!extractedText && effectiveMime.startsWith("image/")) {
-        extractedText = `[Vorlesungsfolie / Bilddokument: ${title}]\nHinterlegte Grafik für Modul ${mod.name}. Für automatische Texterkennung & Tafelbild-Transkription aktiviere Google Gemini in den Einstellungen.`;
+        extractedText = `[Vorlesungsfolie / Bilddokument: ${trimmedTitle}]\nHinterlegte Grafik für Modul ${mod.name}.`;
       }
     }
 
@@ -107,16 +111,16 @@ export async function POST(req: Request) {
     } else if (textContent && textContent.trim()) {
       finalParsedText = textContent.trim();
     } else {
-      finalParsedText = `[Dokument: ${title}]\nHinterlegter Textinhalt für das Modul ${mod.name}. Enthält zentrale Definitionen und Vorlesungsinhalte für die RAG-Klausurvorbereitung.`;
+      finalParsedText = `[Vorlesungsdokument: ${trimmedTitle}]\nDokument für das Modul ${mod.name} (${fileName || trimmedTitle}). Enthält Prüfungsschwerpunkte für die Klausurvorbereitung.`;
     }
 
     // 3. Create document record
     const doc = await prisma.document.create({
       data: {
         moduleId,
-        title: title.trim(),
-        fileName: fileName || `${title.toLowerCase().replace(/\s+/g, "_")}.pdf`,
-        fileUrl: `/uploads/${encodeURIComponent(title)}`,
+        title: trimmedTitle,
+        fileName: fileName || `${trimmedTitle.toLowerCase().replace(/\s+/g, "_")}.pdf`,
+        fileUrl: `/uploads/${encodeURIComponent(trimmedTitle)}`,
         category: effectiveCategory,
         isIndexed: true,
         parsedText: finalParsedText,
@@ -128,17 +132,28 @@ export async function POST(req: Request) {
       await prisma.topic.create({
         data: {
           moduleId,
-          name: title.trim(),
+          name: trimmedTitle,
           masteryScore: 50,
-          summary: `Themenbereich basierend auf dem Dokument "${title}".`,
+          summary: `Themenbereich basierend auf dem Dokument "${trimmedTitle}".`,
         },
       });
     }
 
-    return NextResponse.json(doc, { status: 201 });
-  } catch (error) {
+    return NextResponse.json(
+      {
+        ...doc,
+        extractedChars: finalParsedText.length,
+        hasText: finalParsedText.length > 50,
+        success: true,
+      },
+      { status: 201 }
+    );
+  } catch (error: any) {
     console.error("Failed to upload document:", error);
-    return NextResponse.json({ error: "Fehler beim Upload des Dokuments" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Fehler beim Hochladen des Dokuments." },
+      { status: 500 }
+    );
   }
 }
 
@@ -149,17 +164,22 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Nicht autorisiert" }, { status: 401 });
     }
 
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
+    const url = new URL(req.url);
+    const id = url.searchParams.get("id");
 
     if (!id) {
       return NextResponse.json({ error: "Dokument-ID fehlt" }, { status: 400 });
     }
 
-    // Verify ownership
     const doc = await prisma.document.findUnique({
       where: { id },
-      include: { module: { include: { semester: true } } },
+      include: {
+        module: {
+          include: {
+            semester: true,
+          },
+        },
+      },
     });
 
     if (!doc || doc.module.semester.userId !== user.id) {
@@ -170,8 +190,8 @@ export async function DELETE(req: Request) {
       where: { id },
     });
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
+    return NextResponse.json({ success: true, deletedId: id });
+  } catch (error: any) {
     console.error("Failed to delete document:", error);
     return NextResponse.json({ error: "Fehler beim Löschen des Dokuments" }, { status: 500 });
   }
