@@ -65,7 +65,31 @@ export async function POST(req: Request) {
     if (Array.isArray(incomingCourseGroups) && incomingCourseGroups.length > 0) {
       groupsToProcess = incomingCourseGroups;
     } else if (Array.isArray(events) && events.length > 0) {
-      groupsToProcess = groupIcsEventsByCourse(events, existingModules);
+      const sanitizedEvents: ParsedIcsEvent[] = events.map((raw: any) => {
+        const summary = (raw.summary || raw.cleanModuleName || "Termin").trim();
+        const desc = raw.description || "";
+        const clean = cleanModuleName(summary);
+        const code = raw.courseCode || extractCourseCode(summary);
+        const eventType = raw.eventType && raw.eventType !== "OTHER" ? raw.eventType : classifyEventType(summary, desc);
+        return {
+          uid: raw.uid || Math.random().toString(36).substring(2),
+          summary,
+          cleanModuleName: clean,
+          courseCode: code,
+          description: desc,
+          location: raw.location || "",
+          startDate: raw.startDate ? new Date(raw.startDate) : (raw.dateStr ? new Date(raw.dateStr) : null),
+          endDate: raw.endDate ? new Date(raw.endDate) : null,
+          dateStr: raw.dateStr || "",
+          timeStr: raw.timeStr || "",
+          endTimeStr: raw.endTimeStr || "",
+          eventType,
+          isExam: eventType === "EXAM" || eventType === "TEST",
+          matchedModuleId: raw.target && raw.target !== "create_new" ? raw.target : raw.matchedModuleId,
+          selected: raw.selected !== false,
+        };
+      });
+      groupsToProcess = groupIcsEventsByCourse(sanitizedEvents, existingModules);
     } else {
       return NextResponse.json({ error: "Keine Termine zum Importieren übergeben" }, { status: 400 });
     }
@@ -135,6 +159,12 @@ export async function POST(req: Request) {
             },
           });
           createdModulesCount++;
+          existingModules.push({
+            id: targetModule.id,
+            name: targetModule.name,
+            code: targetModule.code,
+            semesterId: targetModule.semesterId,
+          });
         }
       }
 

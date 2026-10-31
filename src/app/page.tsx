@@ -13,7 +13,12 @@ import {
   Filter,
   User,
   ShieldCheck,
+  RotateCcw,
+  Trash2,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
+import { Portal } from "@/components/Portal";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
 import { SemesterTabs, SemesterType } from "@/components/SemesterTabs";
 import { ModuleCard, ModuleData } from "@/components/ModuleCard";
@@ -33,6 +38,62 @@ export default function HomePage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isLoggingInDemo, setIsLoggingInDemo] = useState(false);
+
+  // Reset Calendar & Merge Courses State
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [deleteEmptyOnReset, setDeleteEmptyOnReset] = useState(true);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [isMergingCourses, setIsMergingCourses] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState<string | null>(null);
+
+  const handleMergeCourses = async () => {
+    setIsMergingCourses(true);
+    setMergeMessage(null);
+    try {
+      const res = await fetch("/api/calendar/merge-courses", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fehler beim Zusammenführen");
+      setMergeMessage(data.message);
+      if (selectedSemesterId) fetchModules(selectedSemesterId);
+      setTimeout(() => setMergeMessage(null), 3500);
+    } catch (err: any) {
+      console.error("Failed to merge courses:", err);
+    } finally {
+      setIsMergingCourses(false);
+    }
+  };
+
+  const handleResetCalendar = async () => {
+    setIsResetting(true);
+    setResetError(null);
+    setResetMessage(null);
+    try {
+      const res = await fetch("/api/calendar", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteEmptyModules: deleteEmptyOnReset }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fehler beim Zurücksetzen");
+      setResetMessage(
+        data.message ||
+          (lang === "de"
+            ? "Kalender erfolgreich zurückgesetzt."
+            : "Calendar successfully reset.")
+      );
+      if (selectedSemesterId) fetchModules(selectedSemesterId);
+      setTimeout(() => {
+        setIsResetModalOpen(false);
+        setResetMessage(null);
+      }, 1400);
+    } catch (err: any) {
+      setResetError(err.message || "Fehler beim Zurücksetzen");
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   const fetchCurrentUser = async () => {
     try {
@@ -256,6 +317,29 @@ export default function HomePage() {
                 <Calendar className="w-3.5 h-3.5 text-indigo-500" /> {t.calendar} &amp; .ics
               </Link>
 
+              {/* Merge Duplicate Courses Button */}
+              <button
+                type="button"
+                onClick={handleMergeCourses}
+                disabled={isMergingCourses}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-all disabled:opacity-50"
+                title={lang === "de" ? "Doppelte Termine gleicher Modulnummern (330...) automatisch zu einem Modul zusammenführen" : "Consolidate duplicate course numbers into single modules"}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                <span>{isMergingCourses ? (lang === "de" ? "Führe zusammen..." : "Merging...") : (lang === "de" ? "Module zusammenführen" : "Merge Courses")}</span>
+              </button>
+
+              {/* Reset Calendar Button */}
+              <button
+                type="button"
+                onClick={() => setIsResetModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all"
+                title={lang === "de" ? "Gesamten Kalender zurücksetzen & Termine leeren" : "Reset entire calendar & clear events"}
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                <span>{lang === "de" ? "Kalender zurücksetzen" : "Reset Calendar"}</span>
+              </button>
+
               {/* Add Module Button */}
               {selectedSemesterId && (
                 <button
@@ -268,6 +352,13 @@ export default function HomePage() {
               )}
             </div>
           </div>
+
+          {mergeMessage && (
+            <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              <span>{mergeMessage}</span>
+            </div>
+          )}
 
           {/* Module Cards Grid */}
           {modulesLoading ? (
@@ -339,6 +430,101 @@ export default function HomePage() {
             fetchSemesters();
           }}
         />
+      )}
+
+      {/* Reset Calendar Confirmation Modal */}
+      {isResetModalOpen && (
+        <Portal>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-6 overflow-y-auto">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150 my-auto space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+                    <RotateCcw className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                      {lang === "de" ? "Kalender zurücksetzen?" : "Reset Calendar?"}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {lang === "de" ? "Alle Termine & Prüfungsdaten leeren" : "Clear all events & exam dates"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsResetModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold p-1 rounded-lg"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+                <p>
+                  {lang === "de"
+                    ? "Möchtest du wirklich alle eingetragenen Vorlesungen, Übungen, Tests und Prüfungstermine aus deinem Kalender entfernen?"
+                    : "Are you sure you want to remove all lectures, exercises, tests, and exam dates from your calendar?"}
+                </p>
+
+                <div className="p-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 font-medium">
+                  🛡️ {lang === "de"
+                    ? "Deine Module mit hochgeladenen Dokumenten, Zusammenfassungen und Fragen bleiben zu 100% sicher erhalten!"
+                    : "Your modules with uploaded documents, summaries, and questions will remain 100% safe!"}
+                </div>
+
+                <label className="flex items-start gap-2.5 pt-1 cursor-pointer select-none text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={deleteEmptyOnReset}
+                    onChange={(e) => setDeleteEmptyOnReset(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+                  />
+                  <span>
+                    {lang === "de"
+                      ? "Leere Modul-Einträge ohne Dokumente oder Fragen (z. B. durch frühere Kalenderimporte) ebenfalls entfernen"
+                      : "Also delete empty dummy modules without documents or questions (e.g. from previous imports)"}
+                  </span>
+                </label>
+              </div>
+
+              {resetError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-semibold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>{resetError}</span>
+                </div>
+              )}
+
+              {resetMessage && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                  <span>{resetMessage}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsResetModalOpen(false)}
+                  disabled={isResetting}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetCalendar}
+                  disabled={isResetting}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-all disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {isResetting
+                    ? (lang === "de" ? "Wird zurückgesetzt..." : "Resetting...")
+                    : (lang === "de" ? "Ja, Kalender zurücksetzen" : "Yes, Reset Calendar")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
       )}
     </div>
   );

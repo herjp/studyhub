@@ -109,6 +109,10 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
 
+  // Merge Courses State
+  const [isMergingCourses, setIsMergingCourses] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState<string | null>(null);
+
   const fetchCalendarData = async () => {
     try {
       const [resCal, resModules] = await Promise.all([
@@ -237,6 +241,24 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
       setResetError(err.message || "Fehler beim Zurücksetzen");
     } finally {
       setIsResetting(false);
+    }
+  };
+
+  const handleMergeCourses = async () => {
+    setIsMergingCourses(true);
+    setMergeMessage(null);
+    try {
+      const res = await fetch("/api/calendar/merge-courses", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fehler beim Zusammenführen");
+      setMergeMessage(data.message);
+      fetchCalendarData();
+      if (onExamUpdated) onExamUpdated();
+      setTimeout(() => setMergeMessage(null), 3500);
+    } catch (err: any) {
+      console.error("Failed to merge courses:", err);
+    } finally {
+      setIsMergingCourses(false);
     }
   };
 
@@ -418,6 +440,17 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
             <Plus className="w-3.5 h-3.5" /> {t.addExamDateBtn}
           </button>
 
+          {/* Merge Duplicate Courses Button */}
+          <button
+            onClick={handleMergeCourses}
+            disabled={isMergingCourses}
+            title={lang === "de" ? "Doppelte Termine gleicher Modulnummern (330...) automatisch zu einem Modul bündeln" : "Merge courses with identical course numbers"}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-all shadow-sm disabled:opacity-50"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>{isMergingCourses ? (lang === "de" ? "Bündle..." : "Merging...") : (lang === "de" ? "Module bündeln" : "Merge")}</span>
+          </button>
+
           {/* Reset Calendar Button */}
           <button
             onClick={() => setIsResetModalOpen(true)}
@@ -429,6 +462,13 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           </button>
         </div>
       </div>
+
+      {mergeMessage && (
+        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          <span>{mergeMessage}</span>
+        </div>
+      )}
 
       {/* FILTER TABS */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
