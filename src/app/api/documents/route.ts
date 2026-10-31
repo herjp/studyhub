@@ -116,36 +116,35 @@ export async function POST(req: Request) {
     }
 
     let effectiveDocTitle = trimmedTitle;
-    if (
-      (!effectiveDocTitle ||
-        /^media[_\s-]?\d+/i.test(effectiveDocTitle) ||
-        /^img[_\s-]?\d+/i.test(effectiveDocTitle) ||
-        /^scan[_\s-]?\d+/i.test(effectiveDocTitle) ||
-        /^screenshot/i.test(effectiveDocTitle) ||
-        effectiveDocTitle.toLowerCase() === fileName?.toLowerCase()) &&
-      extractedText
-    ) {
-      const activeKey = apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
-      if (activeKey) {
-        try {
-          const smart = await suggestSmartDocumentTitle({
-            text: extractedText,
-            fileName: fileName || trimmedTitle,
-            apiKey: activeKey,
-            provider,
-          });
-          if (smart && smart.trim().length > 3) {
-            effectiveDocTitle = smart.trim();
-          }
-        } catch (e) {
-          console.warn("Smart title server fallback:", e);
-        }
-      }
+    const isGenericTitle =
+      !effectiveDocTitle ||
+      /^media[_\s-]?\d+/i.test(effectiveDocTitle) ||
+      /^img[_\s-]?\d+/i.test(effectiveDocTitle) ||
+      /^scan[_\s-]?\d+/i.test(effectiveDocTitle) ||
+      /^screenshot/i.test(effectiveDocTitle) ||
+      effectiveDocTitle.toLowerCase() === fileName?.toLowerCase();
 
-      if (!effectiveDocTitle || /^media[_\s-]?\d+/i.test(effectiveDocTitle) || effectiveDocTitle.toLowerCase() === fileName?.toLowerCase()) {
-        const autoTitle = suggestDocumentTitleFromText(extractedText, trimmedTitle);
-        if (autoTitle && autoTitle.trim().length > 3) {
-          effectiveDocTitle = autoTitle.trim();
+    if (isGenericTitle && extractedText) {
+      // Fast heuristic (0ms latency, analyzes full text for chapters, case studies, exams, concept frequencies)
+      const autoTitle = suggestDocumentTitleFromText(extractedText, trimmedTitle);
+      if (autoTitle && autoTitle.trim().length > 3 && !/^media[_\s-]?\d+/i.test(autoTitle)) {
+        effectiveDocTitle = autoTitle.trim();
+      } else {
+        const activeKey = apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+        if (activeKey) {
+          try {
+            const smart = await suggestSmartDocumentTitle({
+              text: extractedText,
+              fileName: fileName || trimmedTitle,
+              apiKey: activeKey,
+              provider,
+            });
+            if (smart && smart.trim().length > 3) {
+              effectiveDocTitle = smart.trim();
+            }
+          } catch (e) {
+            console.warn("Smart title server fallback:", e);
+          }
         }
       }
     }

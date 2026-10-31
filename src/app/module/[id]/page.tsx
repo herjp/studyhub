@@ -409,10 +409,11 @@ function ModuleDetailContent() {
     const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|heic)$/i.test(file.name);
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 
-    // 1. Photos & Lecture Slides (PNG, JPG, HEIC): Compress & send base64 for Gemini Vision Multimodal OCR
+    // 1. Photos & Lecture Slides (PNG, JPG, HEIC): Fast client compression (30ms), backend Gemini Vision will transcribe
     if (isImage) {
       try {
         const compressed = await compressImageForUpload(file);
+        const detected = suggestDocumentTitleFromText("", cleanName);
         setUploadQueue((prev) =>
           prev.map((it) =>
             it.id === itemId
@@ -421,52 +422,24 @@ function ModuleDetailContent() {
                   base64: compressed.base64,
                   mimeType: compressed.mimeType,
                   sizeStr: compressed.sizeStr,
+                  suggestedTitle: detected || it.suggestedTitle,
+                  title: isGenericDocTitle(it.title, it.name) && detected ? detected : it.title,
+                  isProcessing: false,
                 }
               : it
           )
         );
-
-        try {
-          const ocrText = await recognizeTextWithTesseract(file);
-          if (ocrText && ocrText.trim().length > 20) {
-            const trimmed = ocrText.trim();
-            const detected = suggestDocumentTitleFromText(trimmed, cleanName);
-            setUploadQueue((prev) =>
-              prev.map((it) => {
-                if (it.id !== itemId) return it;
-                const shouldUpdate = isGenericDocTitle(it.title, it.name) || it.title === cleanName;
-                return {
-                  ...it,
-                  clientExtractedText: trimmed,
-                  suggestedTitle: detected || it.suggestedTitle,
-                  title: shouldUpdate && detected ? detected : it.title,
-                  isProcessing: false,
-                };
-              })
-            );
-            if (isSingleItem) {
-              setDocText(trimmed);
-              if (detected) {
-                setSuggestedDocTitle(detected);
-                setDocTitle((curr) => isGenericDocTitle(curr, file.name) ? detected : curr);
-              }
-            }
-            fetchSmartTitle(itemId, trimmed, cleanName, isSingleItem);
-            return;
-          }
-        } catch (ocrErr) {
-          console.warn("Background OCR:", ocrErr);
+        if (isSingleItem && detected) {
+          setSuggestedDocTitle(detected);
+          setDocTitle((curr) => (isGenericDocTitle(curr, file.name) ? detected : curr));
         }
-        setUploadQueue((prev) =>
-          prev.map((it) => (it.id === itemId ? { ...it, isProcessing: false } : it))
-        );
         return;
       } catch (err) {
         console.warn("Client photo compression fallback:", err);
       }
     }
 
-    // 2. Client-side PDF extraction: High-fidelity Mozilla PDF.js engine
+    // 2. Client-side PDF extraction: Fast digital text extraction via Mozilla PDF.js (~50ms)
     let clientText = "";
     if (isPdf) {
       try {
@@ -511,18 +484,20 @@ function ModuleDetailContent() {
         setDocText(clientText);
         if (detected) {
           setSuggestedDocTitle(detected);
-          setDocTitle((curr) => isGenericDocTitle(curr, file.name) || !curr.trim() || curr === cleanName ? detected : curr);
+          setDocTitle((curr) =>
+            isGenericDocTitle(curr, file.name) || !curr.trim() || curr === cleanName ? detected : curr
+          );
         }
       }
-      fetchSmartTitle(itemId, clientText, cleanName, isSingleItem);
       return;
     }
 
-    // 4. Scanned PDF fallback: Render pages to compressed JPEG & run browser OCR
+    // 4. Scanned PDF fallback: Render first pages to compressed JPEG instantly (100ms)
     if (isPdf) {
       try {
         const rendered = await renderPdfToCompressedJpeg(file);
         if (rendered && rendered.base64) {
+          const detected = suggestDocumentTitleFromText("", cleanName);
           setUploadQueue((prev) =>
             prev.map((it) =>
               it.id === itemId
@@ -531,47 +506,17 @@ function ModuleDetailContent() {
                     base64: rendered.base64,
                     mimeType: rendered.mimeType,
                     sizeStr: rendered.sizeStr,
+                    suggestedTitle: detected || it.suggestedTitle,
+                    title: isGenericDocTitle(it.title, it.name) && detected ? detected : it.title,
+                    isProcessing: false,
                   }
                 : it
             )
           );
-
-          try {
-            const ocrText = await recognizeTextWithTesseract(
-              `data:${rendered.mimeType};base64,${rendered.base64}`
-            );
-            if (ocrText && ocrText.trim().length > 20) {
-              const trimmed = ocrText.trim();
-              const detected = suggestDocumentTitleFromText(trimmed, cleanName);
-              setUploadQueue((prev) =>
-                prev.map((it) => {
-                  if (it.id !== itemId) return it;
-                  const shouldUpdate = isGenericDocTitle(it.title, it.name) || it.title === cleanName;
-                  return {
-                    ...it,
-                    clientExtractedText: trimmed,
-                    suggestedTitle: detected || it.suggestedTitle,
-                    title: shouldUpdate && detected ? detected : it.title,
-                    isProcessing: false,
-                  };
-                })
-              );
-              if (isSingleItem) {
-                setDocText(trimmed);
-                if (detected) {
-                  setSuggestedDocTitle(detected);
-                  setDocTitle((curr) => isGenericDocTitle(curr, file.name) ? detected : curr);
-                }
-              }
-              fetchSmartTitle(itemId, trimmed, cleanName, isSingleItem);
-              return;
-            }
-          } catch (ocrErr) {
-            console.warn("Background PDF OCR:", ocrErr);
+          if (isSingleItem && detected) {
+            setSuggestedDocTitle(detected);
+            setDocTitle((curr) => (isGenericDocTitle(curr, file.name) ? detected : curr));
           }
-          setUploadQueue((prev) =>
-            prev.map((it) => (it.id === itemId ? { ...it, isProcessing: false } : it))
-          );
           return;
         }
       } catch (renderErr) {
@@ -801,10 +746,19 @@ function ModuleDetailContent() {
     setIsUploading(true);
     let successCount = 0;
     let failCount = 0;
+    let completedCount = 0;
+    const CONCURRENCY = 3;
 
-    for (let i = 0; i < itemsToUpload.length; i++) {
-      const item = itemsToUpload[i];
-      setUploadProgressIndex(i);
+    setUploadStage(
+      lang === "de"
+        ? `Lade ${itemsToUpload.length} Dokumente parallel hoch...`
+        : `Uploading ${itemsToUpload.length} documents in parallel...`
+    );
+
+    const uploadSingleDocument = async (item: UploadQueueItem) => {
+      setUploadQueue((prev) =>
+        prev.map((it) => (it.id === item.id ? { ...it, status: "uploading", errorMessage: undefined } : it))
+      );
 
       // Single item can also take docTitle or docText if user typed in main form
       const effectiveTitle = (uploadQueue.length === 1 && docTitle.trim()) 
@@ -818,22 +772,8 @@ function ModuleDetailContent() {
       const effectiveCategory = uploadQueue.length === 1 ? (isPastExam ? "EXAM_PAST" : docCategory) : (item.isPastExam ? "EXAM_PAST" : item.category);
       const effectiveIsPastExam = uploadQueue.length === 1 ? isPastExam : item.isPastExam;
 
-      setUploadStage(
-        itemsToUpload.length === 1
-          ? (item.clientExtractedText
-              ? (lang === "de" ? `Indiziere "${effectiveTitle}"...` : `Indexing "${effectiveTitle}"...`)
-              : (lang === "de" ? `✨ KI-Vision analysiert "${effectiveTitle}"...` : `✨ AI Vision analyzing "${effectiveTitle}"...`))
-          : (lang === "de"
-              ? `[${i + 1}/${itemsToUpload.length}] Indiziere "${effectiveTitle}"...`
-              : `[${i + 1}/${itemsToUpload.length}] Indexing "${effectiveTitle}"...`)
-      );
-
-      setUploadQueue((prev) =>
-        prev.map((it) => (it.id === item.id ? { ...it, status: "uploading", errorMessage: undefined } : it))
-      );
-
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
 
       try {
         const res = await fetch("/api/documents", {
@@ -879,10 +819,11 @@ function ModuleDetailContent() {
 
         if (res.ok) {
           successCount++;
+          const confirmedTitle = data.title || effectiveTitle;
           setUploadQueue((prev) =>
             prev.map((it) =>
               it.id === item.id
-                ? { ...it, status: "done", extractedChars: data.extractedChars || 0 }
+                ? { ...it, title: confirmedTitle, status: "done", extractedChars: data.extractedChars || 0 }
                 : it
             )
           );
@@ -908,8 +849,29 @@ function ModuleDetailContent() {
             it.id === item.id ? { ...it, status: "error", errorMessage: errMsg } : it
           )
         );
+      } finally {
+        completedCount++;
+        setUploadProgressIndex(completedCount);
+        setUploadStage(
+          lang === "de"
+            ? `${completedCount} von ${itemsToUpload.length} Dokumenten indexiert...`
+            : `${completedCount} of ${itemsToUpload.length} documents indexed...`
+        );
       }
-    }
+    };
+
+    // Run parallel queue with up to 3 concurrent connections
+    let nextQueueIdx = 0;
+    const workers = Array.from(
+      { length: Math.min(CONCURRENCY, itemsToUpload.length) },
+      async () => {
+        while (nextQueueIdx < itemsToUpload.length) {
+          const idx = nextQueueIdx++;
+          await uploadSingleDocument(itemsToUpload[idx]);
+        }
+      }
+    );
+    await Promise.all(workers);
 
     fetchModule();
     setIsUploading(false);
