@@ -66,7 +66,7 @@ async function compressImageForUpload(
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const MAX_DIM = 1600;
+      const MAX_DIM = 1200;
       let width = img.width;
       let height = img.height;
 
@@ -96,7 +96,7 @@ async function compressImageForUpload(
         return;
       }
       ctx.drawImage(img, 0, 0, width, height);
-      const compressedBase64 = canvas.toDataURL("image/jpeg", 0.80);
+      const compressedBase64 = canvas.toDataURL("image/jpeg", 0.70);
       const approxBytes = Math.round((compressedBase64.length * 3) / 4);
       const sizeStr = `${Math.round(approxBytes / 1024)} KB (Foto komprimiert)`;
       resolve({ base64: compressedBase64, mimeType: "image/jpeg", sizeStr });
@@ -481,8 +481,11 @@ function ModuleDetailContent() {
     setUploadStage(
       uploadedFile?.clientExtractedText
         ? (lang === "de" ? "Indiziere extrahierte Vorlesungsinhalte..." : "Indexing lecture contents...")
-        : (lang === "de" ? "✨ Gemini Vision analysiert Foto-Seiten & Handschrift..." : "✨ Gemini Vision analyzing document...")
+        : (lang === "de" ? "✨ KI-Vision analysiert Foto-Seiten & Handschrift..." : "✨ AI Vision analyzing document...")
     );
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     try {
       const storedProvider = typeof window !== "undefined" ? localStorage.getItem("studyhub_ai_provider") || "gemini" : "gemini";
@@ -493,6 +496,7 @@ function ModuleDetailContent() {
       const res = await fetch("/api/documents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           moduleId,
           title: effectiveTitle,
@@ -506,6 +510,7 @@ function ModuleDetailContent() {
           provider: storedProvider,
         }),
       });
+      clearTimeout(timeoutId);
 
       let errorMsg = "";
       let data: any = {};
@@ -529,8 +534,9 @@ function ModuleDetailContent() {
               : "Access denied: Module belongs to another account.";
           } else if (res.status === 504) {
             errorMsg = lang === "de"
-              ? "Zeitüberschreitung der KI-Analyse. Bitte versuche es erneut."
-              : "AI analysis timed out.";
+              ? "Die KI-Analyse hat etwas länger gedauert. Bitte prüfe in der Liste unten, ob das Dokument bereits gespeichert wurde."
+              : "AI analysis took longer than usual.";
+            fetchModule();
           } else {
             errorMsg = rawText.slice(0, 150) || `Serverfehler (${res.status})`;
           }
@@ -563,8 +569,18 @@ function ModuleDetailContent() {
         }
       }
     } catch (err: any) {
+      clearTimeout(timeoutId);
       console.error(err);
-      setUploadError(err.message || "Netzwerkfehler beim Hochladen.");
+      fetchModule();
+      if (err.name === "AbortError") {
+        setUploadError(
+          lang === "de"
+            ? "Der Upload hat länger als gewohnt gedauert. Prüfe bitte in der Liste der hinterlegten Unterlagen, ob das Dokument bereits angelegt wurde."
+            : "Upload took longer than expected. Please check below."
+        );
+      } else {
+        setUploadError(err.message || "Netzwerkfehler beim Hochladen.");
+      }
     } finally {
       setIsUploading(false);
       setUploadStage("");

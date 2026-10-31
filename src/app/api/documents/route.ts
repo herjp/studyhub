@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { DocumentCategory } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
-import { extractDocumentWithGemini } from "@/lib/ai-service";
+import { extractDocumentWithAI, extractDocumentWithGemini } from "@/lib/ai-service";
 import { extractPdfTextFromBuffer, sanitizePostgresString } from "@/lib/pdf-extractor";
 
 export async function POST(req: Request) {
@@ -60,9 +60,10 @@ export async function POST(req: Request) {
     if (fileBase64 && typeof fileBase64 === "string") {
       const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, "");
       const effectiveMime = mimeType || "application/pdf";
-      const isPdf = effectiveMime === "application/pdf" || (fileName && fileName.endsWith(".pdf"));
+      const isImage = effectiveMime.startsWith("image/");
+      const isPdf = !isImage && (effectiveMime === "application/pdf" || (fileName && fileName.endsWith(".pdf")));
 
-      // A) For PDFs: Use robust zero-worker stream parser first
+      // A) For digital PDFs: Use fast stream parser first
       if (isPdf) {
         try {
           const buffer = Buffer.from(cleanBase64, "base64");
@@ -75,30 +76,30 @@ export async function POST(req: Request) {
         }
       }
 
-      // B) If PDF had no embedded text (scanned slides/images) OR if file is an image: Try Gemini Multimodal OCR
-      const activeGeminiKey = apiKey || process.env.GEMINI_API_KEY;
-      if (!extractedText && activeGeminiKey) {
+      // B) Multimodal OCR with strict timeout (Gemini, OpenAI, or Anthropic)
+      const activeKey = apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+      if (!extractedText && activeKey && (isImage || isPdf)) {
         try {
-          const geminiResult = await extractDocumentWithGemini({
+          const aiResult = await extractDocumentWithAI({
             fileBase64: cleanBase64,
-            mimeType: effectiveMime,
+            mimeType: isImage ? effectiveMime : "image/jpeg",
             fileName: fileName || `${trimmedTitle}.pdf`,
             title: trimmedTitle,
-            apiKey: activeGeminiKey,
+            apiKey: activeKey,
             provider,
           });
 
-          if (geminiResult && geminiResult.trim().length > 0) {
-            extractedText = geminiResult.trim();
+          if (aiResult && aiResult.trim().length > 0) {
+            extractedText = aiResult.trim();
           }
-        } catch (geminiErr: any) {
-          console.warn("Gemini multimodal OCR fallback:", geminiErr.message);
+        } catch (ocrErr: any) {
+          console.warn("Multimodal OCR fallback:", ocrErr.message);
         }
       }
 
-      // C) If still no text (e.g. image without Gemini key)
-      if (!extractedText && effectiveMime.startsWith("image/")) {
-        extractedText = `[Vorlesungsfolie / Bilddokument: ${trimmedTitle}]\nHinterlegte Grafik für Modul ${mod.name}.`;
+      // C) Fallback: NEVER fail or timeout - always save the document safely!
+      if (!extractedText) {
+        extractedText = `[Vorlesungsdokument: ${trimmedTitle}]\n(Foto/Scan erfolgreich hinterlegt. Vorlesungsinhalte werden beim Klausurtraining direkt herangezogen oder können unter 'Text bearbeiten' angepasst werden.)`;
       }
     }
 

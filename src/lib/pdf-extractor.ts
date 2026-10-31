@@ -159,8 +159,8 @@ export async function renderPdfToCompressedJpeg(
     for (let p = 1; p <= pagesToRender; p++) {
       const page = await pdf.getPage(p);
       const unscaledViewport = page.getViewport({ scale: 1.0 });
-      // Scale to max 1500px width for optimal OCR readability while keeping JPEG small
-      const targetWidth = Math.min(1500, Math.max(900, unscaledViewport.width * 1.5));
+      // Scale to max 1200px width for fast rendering and optimal OCR readability
+      const targetWidth = Math.min(1200, Math.max(800, unscaledViewport.width * 1.2));
       const scale = targetWidth / unscaledViewport.width;
       const viewport = page.getViewport({ scale });
 
@@ -196,8 +196,8 @@ export async function renderPdfToCompressedJpeg(
       currentY += c.height;
     }
 
-    // Export as high-quality JPEG (quality 0.80)
-    const jpegDataUrl = combinedCanvas.toDataURL("image/jpeg", 0.80);
+    // Export as optimized JPEG (quality 0.70)
+    const jpegDataUrl = combinedCanvas.toDataURL("image/jpeg", 0.70);
     const cleanBase64 = jpegDataUrl.replace(/^data:image\/jpeg;base64,/, "");
     const approxBytes = Math.round((cleanBase64.length * 3) / 4);
     const sizeStr = `${Math.round(approxBytes / 1024)} KB (Scan komprimiert)`;

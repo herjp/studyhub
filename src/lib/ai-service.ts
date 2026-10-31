@@ -89,7 +89,7 @@ export async function getAvailableGeminiModels(apiKey: string): Promise<string[]
   try {
     const listRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-      { method: "GET" }
+      { method: "GET", signal: AbortSignal.timeout(3000) }
     );
     if (listRes.ok) {
       const data = await listRes.json();
@@ -122,24 +122,19 @@ export async function getAvailableGeminiModels(apiKey: string): Promise<string[]
 export async function resolveGeminiModelsToTry(apiKey: string, preferredModel?: string): Promise<string[]> {
   const dynamicModels = await getAvailableGeminiModels(apiKey);
 
-  // Modern Gemini models supported for generateContent
+  // Modern production Gemini models supported for generateContent in Google Gemini API
   const modernPreferred = [
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-pro",
-    "gemini-3.8-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-3.6-flash",
-    "gemini-3.1-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-pro",
   ];
 
   const modelsToTry: string[] = [];
 
-  // Exclude obsolete deprecated models that return 404
+  // Use preferred model if specified and supported
   if (
     preferredModel &&
-    !preferredModel.includes("1.5") &&
-    !preferredModel.includes("2.0-flash") &&
     !preferredModel.includes("1.0")
   ) {
     modelsToTry.push(preferredModel);
@@ -156,11 +151,9 @@ export async function resolveGeminiModelsToTry(apiKey: string, preferredModel?: 
     for (const d of dynamicModels) {
       if (
         !modelsToTry.includes(d) &&
-        !d.includes("1.5") &&
-        !d.includes("2.0-flash") &&
         !d.includes("embedding") &&
         !d.includes("tts") &&
-        !d.includes("image")
+        !d.includes("imagen")
       ) {
         modelsToTry.push(d);
       }
@@ -174,7 +167,7 @@ export async function resolveGeminiModelsToTry(apiKey: string, preferredModel?: 
     }
   }
 
-  return modelsToTry;
+  return modelsToTry.slice(0, 3);
 }
 
 /**
@@ -894,7 +887,11 @@ Erstelle jetzt genau ${count} anspruchsvolle, klausurrelevante Prüfungsfragen z
 /**
  * Extracts and transcribes lecture documents (PDF, PNG, JPEG) using Gemini multimodal understanding.
  */
-export async function extractDocumentWithGemini(params: {
+/**
+ * Universal Multimodal Document & Handwriting Extraction (Gemini, OpenAI, Anthropic).
+ * Uses fast vision models with strict timeouts (8s) to prevent gateway timeouts.
+ */
+export async function extractDocumentWithAI(params: {
   fileBase64: string;
   mimeType: string;
   fileName?: string;
@@ -902,66 +899,160 @@ export async function extractDocumentWithGemini(params: {
   apiKey?: string;
   provider?: string;
 }): Promise<string> {
-  const { fileBase64, mimeType, fileName, title, apiKey } = params;
-  const activeKey = apiKey || process.env.GEMINI_API_KEY;
-
-  if (!activeKey) {
-    throw new Error("Kein Google Gemini API Key für Multimodal-OCR verfügbar.");
-  }
-
+  const { fileBase64, mimeType, fileName, title, apiKey, provider = "gemini" } = params;
   const docLabel = fileName || title || "Vorlesungsdokument";
-  const prompt = `Analysiere dieses Dokument / diese Vorlesungsfolie ("${docLabel}") gründlich für einen Universitäts-Klausurtrainer.
-Extrahiere:
-1. Den vollständigen Text der Folien / Seiten
-2. Alle Definitionen, Lehrsätze, Formeln und Algorithmen
-3. Wichtige Fachtermini und Kernaussagen
-Formatiere das Ergebnis in klarem, strukturiertem Text/Markdown.`;
+  const prompt = `Analysiere dieses Dokument / diese Vorlesungsfolie / handschriftliche Notiz ("${docLabel}") für einen Universitäts-Klausurtrainer.
+Extrahiere präzise:
+1. Den vollständigen Text der Folien / Handschrift
+2. Alle Definitionen, Lehrsätze, Formeln, Diagramm-Beschriftungen und Kernaussagen
+Formatiere das Ergebnis in klarem Text/Markdown.`;
 
-  const models = await resolveGeminiModelsToTry(activeKey);
-  let lastError: any = null;
-
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${activeKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [
-                { text: prompt },
-                {
-                  inlineData: {
-                    mimeType,
-                    data: fileBase64,
-                  },
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
+  // 1. OpenAI Vision (gpt-4o-mini is extremely fast: ~1.5s)
+  if (provider === "openai" || (apiKey && apiKey.startsWith("sk-") && !apiKey.startsWith("sk-ant-"))) {
+    const openAiKey = apiKey || process.env.OPENAI_API_KEY;
+    if (openAiKey) {
+      try {
+        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openAiKey}`,
           },
-        }),
-      });
+          signal: AbortSignal.timeout(8000),
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: prompt },
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: `data:${mimeType};base64,${fileBase64}`,
+                      detail: "high",
+                    },
+                  },
+                ],
+              },
+            ],
+            max_tokens: 1500,
+          }),
+        });
 
-      if (!res.ok) {
-        const errorText = await res.text();
-        lastError = new Error(`Gemini Multimodal OCR (${model}): ${res.status} ${errorText}`);
-        continue;
+        if (res.ok) {
+          const json = await res.json();
+          const text = json.choices?.[0]?.message?.content;
+          if (text && text.trim().length > 0) {
+            return text.trim();
+          }
+        }
+      } catch (err: any) {
+        console.warn("OpenAI Vision OCR error:", err.message);
       }
-
-      const json = await res.json();
-      const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text && text.trim().length > 0) {
-        return text;
-      }
-    } catch (err: any) {
-      lastError = err;
     }
   }
 
-  throw lastError || new Error("Gemini OCR lieferte keinen Text zurück.");
+  // 2. Anthropic Vision (claude-3-5-haiku)
+  if (provider === "anthropic" || (apiKey && apiKey.startsWith("sk-ant-"))) {
+    const antKey = apiKey || process.env.ANTHROPIC_API_KEY;
+    if (antKey) {
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": antKey,
+            "anthropic-version": "2023-06-01",
+          },
+          signal: AbortSignal.timeout(8000),
+          body: JSON.stringify({
+            model: "claude-3-5-haiku-20241022",
+            max_tokens: 1500,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: mimeType,
+                      data: fileBase64,
+                    },
+                  },
+                  { type: "text", text: prompt },
+                ],
+              },
+            ],
+          }),
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          const text = json.content?.[0]?.text;
+          if (text && text.trim().length > 0) {
+            return text.trim();
+          }
+        }
+      } catch (err: any) {
+        console.warn("Anthropic Vision OCR error:", err.message);
+      }
+    }
+  }
+
+  // 3. Google Gemini Multimodal Vision (gemini-2.0-flash / gemini-1.5-flash)
+  const geminiKey = apiKey || process.env.GEMINI_API_KEY;
+  if (geminiKey && !geminiKey.startsWith("sk-")) {
+    const models = await resolveGeminiModelsToTry(geminiKey);
+    // Limit to top 2 models to guarantee fast response
+    const modelsToAttempt = models.slice(0, 2);
+
+    for (const model of modelsToAttempt) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(8000),
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      mime_type: mimeType,
+                      data: fileBase64,
+                    },
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.1,
+            },
+          }),
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text && text.trim().length > 0) {
+            return text.trim();
+          }
+        } else {
+          const errText = await res.text();
+          console.warn(`Gemini Vision (${model}) returned ${res.status}:`, errText);
+        }
+      } catch (err: any) {
+        console.warn(`Gemini Vision (${model}) error:`, err.message);
+      }
+    }
+  }
+
+  throw new Error("Kein KI-Vision Modell konnte Text aus dem Bild/Scan extrahieren.");
 }
+
+export const extractDocumentWithGemini = extractDocumentWithAI;
