@@ -185,3 +185,96 @@ export async function POST(req: Request) {
     );
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Nicht autorisiert" }, { status: 401 });
+    }
+
+    let deleteEmptyModules = true;
+    try {
+      const body = await req.json();
+      if (typeof body.deleteEmptyModules === "boolean") {
+        deleteEmptyModules = body.deleteEmptyModules;
+      }
+    } catch {
+      // Body may be empty on simple DELETE requests
+    }
+
+    // 1. Find all modules belonging to this user
+    const userModules = await prisma.module.findMany({
+      where: { semester: { userId: user.id } },
+      select: {
+        id: true,
+        name: true,
+        _count: {
+          select: {
+            documents: true,
+            questions: true,
+            topics: true,
+          },
+        },
+      },
+    });
+
+    const allModuleIds = userModules.map((m) => m.id);
+
+    // 2. Delete all CalendarEvents for this user's modules
+    const deletedEvents = await prisma.calendarEvent.deleteMany({
+      where: { moduleId: { in: allModuleIds } },
+    });
+
+    // 3. Reset examDate, examTime, examLocation on all user's modules
+    const resetExams = await prisma.module.updateMany({
+      where: {
+        id: { in: allModuleIds },
+        examDate: { not: null },
+      },
+      data: {
+        examDate: null,
+        examTime: null,
+        examLocation: null,
+      },
+    });
+
+    // 4. Optionally delete empty dummy modules (with 0 docs, 0 questions, 0 topics)
+    let deletedEmptyModulesCount = 0;
+    if (deleteEmptyModules) {
+      const emptyModuleIds = userModules
+        .filter(
+          (m) =>
+            m._count.documents === 0 &&
+            m._count.questions === 0 &&
+            m._count.topics === 0
+        )
+        .map((m) => m.id);
+
+      if (emptyModuleIds.length > 0) {
+        const deletedEmpty = await prisma.module.deleteMany({
+          where: { id: { in: emptyModuleIds } },
+        });
+        deletedEmptyModulesCount = deletedEmpty.count;
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      deletedEventsCount: deletedEvents.count,
+      resetExamsCount: resetExams.count,
+      deletedEmptyModulesCount,
+      message: `Kalender erfolgreich zurückgesetzt: ${deletedEvents.count} Termine gelöscht, ${resetExams.count} Prüfungstermine zurückgesetzt${
+        deletedEmptyModulesCount > 0
+          ? `, ${deletedEmptyModulesCount} leere Import-Module entfernt`
+          : ""
+      }.`,
+    });
+  } catch (error: any) {
+    console.error("Failed to reset calendar:", error);
+    return NextResponse.json(
+      { error: "Fehler beim Zurücksetzen des Kalenders: " + error.message },
+      { status: 500 }
+    );
+  }
+}
