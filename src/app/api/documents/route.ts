@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { DocumentCategory } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
-import { extractDocumentWithAI, extractDocumentWithGemini } from "@/lib/ai-service";
+import { extractDocumentWithAI, extractDocumentWithGemini, suggestSmartDocumentTitle } from "@/lib/ai-service";
 import { extractPdfTextFromBuffer, sanitizePostgresString, suggestDocumentTitleFromText } from "@/lib/pdf-extractor";
 
 export async function POST(req: Request) {
@@ -125,9 +125,28 @@ export async function POST(req: Request) {
         effectiveDocTitle.toLowerCase() === fileName?.toLowerCase()) &&
       extractedText
     ) {
-      const autoTitle = suggestDocumentTitleFromText(extractedText, trimmedTitle);
-      if (autoTitle && autoTitle.trim().length > 3) {
-        effectiveDocTitle = autoTitle.trim();
+      const activeKey = apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+      if (activeKey) {
+        try {
+          const smart = await suggestSmartDocumentTitle({
+            text: extractedText,
+            fileName: fileName || trimmedTitle,
+            apiKey: activeKey,
+            provider,
+          });
+          if (smart && smart.trim().length > 3) {
+            effectiveDocTitle = smart.trim();
+          }
+        } catch (e) {
+          console.warn("Smart title server fallback:", e);
+        }
+      }
+
+      if (!effectiveDocTitle || /^media[_\s-]?\d+/i.test(effectiveDocTitle) || effectiveDocTitle.toLowerCase() === fileName?.toLowerCase()) {
+        const autoTitle = suggestDocumentTitleFromText(extractedText, trimmedTitle);
+        if (autoTitle && autoTitle.trim().length > 3) {
+          effectiveDocTitle = autoTitle.trim();
+        }
       }
     }
 

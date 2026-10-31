@@ -347,6 +347,63 @@ function ModuleDetailContent() {
     };
   };
 
+  const fetchSmartTitle = async (
+    itemId: string,
+    extractedText: string,
+    cleanName: string,
+    isSingleItem: boolean
+  ) => {
+    if (!extractedText || extractedText.trim().length < 25) return;
+    try {
+      const storedProvider = typeof window !== "undefined" ? localStorage.getItem("studyhub_ai_provider") || "gemini" : "gemini";
+      const storedKey = typeof window !== "undefined" 
+        ? (localStorage.getItem(`studyhub_api_key_${storedProvider}`) || localStorage.getItem("studyhub_api_key") || undefined) 
+        : undefined;
+
+      const res = await fetch("/api/documents/suggest-title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: extractedText,
+          fileName: cleanName,
+          apiKey: storedKey,
+          provider: storedProvider,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.title && typeof data.title === "string" && data.title.trim().length > 3) {
+          const smartTitle = data.title.trim();
+          setUploadQueue((prev) =>
+            prev.map((it) => {
+              if (it.id !== itemId) return it;
+              const shouldUpdate =
+                isGenericDocTitle(it.title, it.name) ||
+                it.title === cleanName ||
+                it.title === it.suggestedTitle;
+              return {
+                ...it,
+                suggestedTitle: smartTitle,
+                title: shouldUpdate ? smartTitle : it.title,
+              };
+            })
+          );
+          if (isSingleItem) {
+            setSuggestedDocTitle(smartTitle);
+            setDocTitle((curr) =>
+              isGenericDocTitle(curr, cleanName) || !curr.trim() || curr === cleanName
+                ? smartTitle
+                : curr
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("fetchSmartTitle failed:", err);
+    }
+  };
+
   const extractContentForItem = async (itemId: string, file: File, isSingleItem: boolean) => {
     const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").trim();
     const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|heic)$/i.test(file.name);
@@ -394,6 +451,7 @@ function ModuleDetailContent() {
                 setDocTitle((curr) => isGenericDocTitle(curr, file.name) ? detected : curr);
               }
             }
+            fetchSmartTitle(itemId, trimmed, cleanName, isSingleItem);
             return;
           }
         } catch (ocrErr) {
@@ -456,6 +514,7 @@ function ModuleDetailContent() {
           setDocTitle((curr) => isGenericDocTitle(curr, file.name) || !curr.trim() || curr === cleanName ? detected : curr);
         }
       }
+      fetchSmartTitle(itemId, clientText, cleanName, isSingleItem);
       return;
     }
 
@@ -504,6 +563,7 @@ function ModuleDetailContent() {
                   setDocTitle((curr) => isGenericDocTitle(curr, file.name) ? detected : curr);
                 }
               }
+              fetchSmartTitle(itemId, trimmed, cleanName, isSingleItem);
               return;
             }
           } catch (ocrErr) {

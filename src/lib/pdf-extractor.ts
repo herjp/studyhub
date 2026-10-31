@@ -272,12 +272,12 @@ export async function recognizeTextWithTesseract(
 export function suggestDocumentTitleFromText(text: string, fallbackFileName: string = ""): string {
   if (!text || !text.trim()) return fallbackFileName;
 
-  const lines = text
+  const rawLines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
-  // Filter out noise / UI artifacts / boilerplate
+  // Noise / UI artifact detection (time, battery, navigation, exam form fields, university boilerplate)
   const isNoise = (l: string) => {
     if (l.length < 3) return true;
     if (/^\[Seite\s*\d+\]/i.test(l)) return true;
@@ -286,69 +286,162 @@ export function suggestDocumentTitleFromText(text: string, fallbackFileName: str
     if (/^\d+\s*%/i.test(l) || /%\s*[A-Z0-9]?$/i.test(l)) return true; // battery
     if (/^VL\s*\d+$/i.test(l)) return true;
     if (/^TU\s*WIEN$/i.test(l) || l === "WIEN" || l === "TU" || l === "im" || l === "IS") return true;
-    if (/^(Name|Matr\.?\s*Nr|Datum|Unterschrift|Punkte|Bearbeitungszeit|Bitte schreiben Sie|Viel Erfolg)\b/i.test(l)) return true;
+    if (/^(Name|Matr\.?\s*Nr|Datum|Unterschrift|Punkte|Bearbeitungszeit|Bitte schreiben Sie|Viel Erfolg|Gesamtpunktzahl)\b/i.test(l)) return true;
     if (/^--+/.test(l) || /^[•\-_=*~]+$/.test(l)) return true;
-    if (/^(Institut für|Research Group|Academy for Continuing Education)\b/i.test(l)) return true;
+    if (/^(Institut für|Research Group|Academy for Continuing Education|Department of|Lehrstuhl für)\b/i.test(l)) return true;
+    if (/^(inhaltsverzeichnis|table of contents|vorwort|preface|impressum|danksagung|widmung|hinweise)\b/i.test(l)) return true;
     return false;
   };
 
-  const cleanLines = lines.filter((l) => !isNoise(l));
+  const cleanLines: string[] = [];
+  let skippingToc = false;
+  for (const l of rawLines) {
+    if (/^(inhaltsverzeichnis|table of contents|gliederung)\b/i.test(l)) {
+      skippingToc = true;
+      continue;
+    }
+    if (skippingToc) {
+      if (/^\d+[\.\)]\s+/.test(l) || /^\d+\s+[A-Za-z]/.test(l)) {
+        continue; // skip TOC entry
+      }
+      if (l.length > 50 || l.endsWith(".") || l.startsWith("Kapitel") || l.startsWith("Fall")) {
+        skippingToc = false;
+      } else {
+        continue;
+      }
+    }
+    if (!isNoise(l)) {
+      cleanLines.push(l);
+    }
+  }
 
-  // 1. Look for explicit keyword patterns (Fallstudie, Kapitel, Vorlesung, Übung, Klausur)
-  for (let i = 0; i < Math.min(cleanLines.length, 15); i++) {
+  // --- PASS 1: SCAN ENTIRE DOCUMENT FOR HIGH-CONFIDENCE STRUCTURAL MARKERS ---
+
+  // A) Case Study pattern anywhere in text: e.g. "Fall 9 — Der Umbau beginnt vor dem Umbau"
+  for (let i = 0; i < cleanLines.length; i++) {
     const line = cleanLines[i];
-
-    // Case Study: e.g. "Fall 9 — Der Umbau beginnt vor dem Umbau"
-    const fallMatch = line.match(/^Fall\s*\d+[:\s–—-]+(.+)/i);
+    const fallMatch = line.match(/^Fall\s*(\d+)[:\s–—-]+(.+)/i);
     if (fallMatch) {
+      const caseNum = fallMatch[1];
+      const caseTitle = fallMatch[2].trim();
       const nextLine = cleanLines[i + 1];
-      if (nextLine && nextLine.length < 45 && !isNoise(nextLine) && !nextLine.includes(".")) {
-        const full = `${line.replace(/\s*[-–—]\s*/, ": ")} (${nextLine})`;
+      if (nextLine && nextLine.length > 3 && nextLine.length < 45 && !isNoise(nextLine) && !nextLine.includes(".")) {
+        const full = `Fall ${caseNum}: ${caseTitle} (${nextLine})`;
         return full.length > 65 ? full.slice(0, 62) + "..." : full;
       }
-      return line.replace(/\s*[-–—]\s*/, ": ");
+      const res = `Fall ${caseNum}: ${caseTitle}`;
+      return res.length > 65 ? res.slice(0, 62) + "..." : res;
     }
+  }
 
-    // Chapters / Lecture / Exercise: e.g. "Kapitel 4: Transaktionen & Isolation"
-    if (/^(Kapitel|Vorlesung|Übung|Session|Unit|Modul)\s*\d*[:\s–—-]+/i.test(line)) {
-      return line.length > 65 ? line.slice(0, 62) + "..." : line;
-    }
+  // B) Exam headers with Date or Subject anywhere in text: e.g. "Altklausur Leadership (02.12.2025)"
+  const examKeywords = /(?:Abschlussklausur|Altklausur|Klausur|Prüfung|Midterm|Final\s*Exam)/i;
+  for (let i = 0; i < Math.min(cleanLines.length, 60); i++) {
+    const line = cleanLines[i];
+    if (examKeywords.test(line)) {
+      // Find date nearby (within 3 lines)
+      let nearbyDate = "";
+      for (let j = Math.max(0, i - 2); j <= Math.min(cleanLines.length - 1, i + 3); j++) {
+        const dateMatch = cleanLines[j].match(/\b(\d{1,2}\.\s*[A-Za-zäöü]+\s*20\d\d|\d{1,2}\.\d{1,2}\.20\d\d|WS\s*20\d\d|SS\s*20\d\d)\b/i);
+        if (dateMatch) {
+          nearbyDate = dateMatch[1];
+          break;
+        }
+      }
 
-    // Exam headers: e.g. "Abschlussklausur, 2. Dezember 2025"
-    if (/\b(Abschlussklausur|Altklausur|Klausur|Prüfung|Midterm|Final Exam)\b/i.test(line)) {
+      // Check subject from previous line
       const prevLine = cleanLines[i - 1];
-      if (
-        prevLine &&
-        prevLine.length > 6 &&
-        prevLine.length < 45 &&
-        !prevLine.includes("Prof") &&
-        !prevLine.includes("TU")
-      ) {
-        const full = `${prevLine} - ${line}`;
-        return full.length > 65 ? full.slice(0, 62) + "..." : full;
+      let subject = "";
+      if (prevLine && prevLine.length > 3 && prevLine.length < 40 && !isNoise(prevLine) && !prevLine.includes("Prof")) {
+        subject = prevLine;
       }
-      return line;
+
+      const examType = line.match(examKeywords)?.[0] || "Klausur";
+      if (subject && nearbyDate) return `${subject} - ${examType} (${nearbyDate})`;
+      if (subject) return `${subject} - ${examType}`;
+      if (nearbyDate) return `${examType} (${nearbyDate})`;
+      return line.length <= 60 ? line : examType;
     }
   }
 
-  // 2. Look for book titles like "Erfolgreich in turbulenten Zeiten: Leadership..."
-  for (const line of cleanLines.slice(0, 10)) {
-    const bookMatch = line.match(
-      /(?:Auflage\s+)?([A-ZÄÖÜ][^.]{12,65}(?:Leadership|Management|Informatik|Systeme|Architektur|Engineering|Entwicklung|Zeiten)[^.]{0,35})/i
-    );
-    if (bookMatch) {
-      const t = bookMatch[1].trim();
-      return t.length > 65 ? t.slice(0, 62) + "..." : t;
+  // C) Chapter / Lecture headings anywhere in text: e.g. "Kapitel 4: Transaktionen & Isolation"
+  for (let i = 0; i < cleanLines.length; i++) {
+    const line = cleanLines[i];
+    const chMatch = line.match(/^(?:Kapitel|Chapter|Vorlesung|Session|Unit|Modul)\s*(\d+)[:\s–—-]+(.+)/i);
+    if (chMatch) {
+      const chNum = chMatch[1];
+      const chTitle = chMatch[2].trim();
+      const res = `Kapitel ${chNum}: ${chTitle}`;
+      return res.length > 65 ? res.slice(0, 62) + "..." : res;
     }
   }
 
-  // 3. Fallback: First substantive headline
-  for (const line of cleanLines.slice(0, 8)) {
+  // --- PASS 2: FULL-TEXT CONCEPT FREQUENCY (Analyze the ENTIRE document) ---
+  // Identify recurring academic concepts that dominate the pages
+  const wholeDocText = cleanLines.join(" ");
+
+  const conceptPattern = /\b([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){0,2})\b/g;
+  const stopWords = new Set([
+    "Der", "Die", "Das", "Ein", "Eine", "Einer", "Eines", "Einem", "Einen",
+    "Und", "Oder", "Aber", "Für", "Mit", "Von", "Zu", "In", "Im", "Auf", "Aus", "Bei", "Nach",
+    "Nicht", "Auch", "Nur", "Wie", "Als", "Wenn", "Dass", "Über", "Unter", "Vor", "Seit",
+    "Sehr", "Hier", "Dort", "Diese", "Dieser", "Dieses", "Diesen", "Diesem", "Welche", "Welcher",
+    "Wird", "Werden", "Wurden", "Haben", "Hatte", "Sein", "Sind", "War", "Waren", "Kann", "Können",
+    "Soll", "Sollte", "Muss", "Müssen", "Gibt", "Finden", "Zeigt", "Siehe", "Etwa", "Mehr", "Weniger",
+    "Seite", "Seiten", "Kapitel", "Abbildung", "Tabelle", "Quelle", "Autor", "Autoren", "Auflage",
+    "The", "And", "Or", "For", "With", "From", "In", "On", "At", "By", "To", "Of", "An", "Is", "Are"
+  ]);
+
+  const conceptCounts = new Map<string, number>();
+  let match: RegExpExecArray | null;
+  while ((match = conceptPattern.exec(wholeDocText)) !== null) {
+    const rawTerm = match[1].trim();
+    if (rawTerm.length < 5 || stopWords.has(rawTerm)) continue;
+    if (rawTerm.includes("Institut") || rawTerm.includes("Universität") || rawTerm.includes("Wien")) continue;
+
+    conceptCounts.set(rawTerm, (conceptCounts.get(rawTerm) || 0) + 1);
+  }
+
+  // Sort concepts by total occurrences throughout the entire document
+  const sortedConcepts = Array.from(conceptCounts.entries())
+    .filter(([term, count]) => count >= 3 && term.length > 5)
+    .sort((a, b) => b[1] - a[1]);
+
+  if (sortedConcepts.length >= 2) {
+    const top1 = sortedConcepts[0][0];
+    const top2 = sortedConcepts[1][0];
+
+    if (!top1.includes(top2) && !top2.includes(top1)) {
+      // Look for an actual narrative heading that contains both or one (and is not a numbered TOC entry)
+      for (const line of cleanLines.slice(0, 30)) {
+        const isTocItem = /^\d+[\.\)]\s+/.test(line);
+        if (!isTocItem && line.includes(top1) && line.includes(top2) && line.length >= 15 && line.length <= 65 && !line.endsWith(".")) {
+          return line;
+        }
+      }
+      return `${top1} & ${top2}`;
+    } else {
+      return top1;
+    }
+  } else if (sortedConcepts.length === 1) {
+    const top1 = sortedConcepts[0][0];
+    for (const line of cleanLines.slice(0, 30)) {
+      const isTocItem = /^\d+[\.\)]\s+/.test(line);
+      if (!isTocItem && line.includes(top1) && line.length >= 12 && line.length <= 65 && !line.endsWith(".")) {
+        return line;
+      }
+    }
+    return top1;
+  }
+
+  // --- PASS 3: FALLBACK TO FIRST SUBSTANTIVE HEADLINE ---
+  for (const line of cleanLines.slice(0, 15)) {
     if (
-      line.length >= 8 &&
+      line.length >= 10 &&
       line.length <= 65 &&
       !line.endsWith(".") &&
       !line.toLowerCase().includes("institut") &&
+      !line.toLowerCase().includes("universität") &&
       !line.toLowerCase().includes("management science")
     ) {
       return line;

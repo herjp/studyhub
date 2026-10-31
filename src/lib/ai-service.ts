@@ -1,5 +1,5 @@
 import { searchModuleDocuments, getPastExamStyleContext } from "./rag";
-import { isValidPdfText } from "./pdf-extractor";
+import { isValidPdfText, suggestDocumentTitleFromText } from "./pdf-extractor";
 
 export interface EvaluationResult {
   score: number;
@@ -729,6 +729,76 @@ export function sampleStratifiedChunks(cleanedText: string, maxTotalChars: numbe
 }
 
 export const generateTopicSummary = summarizeTopic;
+
+/**
+ * Analyzes the ENTIRE document text (front-matter filtered, stratified across early, middle,
+ * and late chapters) using AI (Gemini, OpenAI, Anthropic) to formulate a concise, highly descriptive
+ * academic title representing the true core topic of the document.
+ */
+export async function suggestSmartDocumentTitle(params: {
+  text: string;
+  fileName?: string;
+  provider?: string;
+  apiKey?: string;
+}): Promise<string> {
+  const { text, fileName, provider, apiKey } = params;
+  if (!text || text.trim().length < 20) {
+    return fileName?.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").trim() || "Neues Dokument";
+  }
+
+  // 1. Filter out front matter & noise (Inhaltsverzeichnis, Vorwort, Impressum, Autorenliste)
+  const cleaned = cleanDocumentBoilerplate(text);
+
+  // 2. Sample evenly across beginning, middle, and end of the document
+  const stratifiedExcerpt = sampleStratifiedChunks(cleaned, 12000);
+
+  const systemInstruction = `Du bist ein intelligenter akademischer Assistent für Studierende.
+Deine Aufgabe ist es, für ein Vorlesungsdokument, Skript, Buchkapitel, eine Fallstudie oder eine Altklausur einen prägnanten, hochpräzisen deutschen Titel (maximal 4 bis 8 Wörter) zu formulieren.`;
+
+  const prompt = `Analysiere den folgenden Inhalt, der aus dem GESAMTEN Dokument (Anfang, Mitte und Ende) extrahiert wurde (organisatorisches Beiwerk wie Vorwort und Inhaltsverzeichnis wurde bereits gefiltert):
+
+--- DOKUMENTEN-AUSZÜGE AUS DEM GESAMTEN TEXT ---
+${stratifiedExcerpt}
+--- ENDE AUSZÜGE ---
+
+${fileName ? `Dateiname der Quelldatei: "${fileName}"` : ""}
+
+AUFGABE:
+Formuliere einen intelligenten, fachlich treffenden Titel, der den tatsächlichen fachlichen KERN des gesamten Dokuments beschreibt.
+
+STRIKTE REGELN:
+1. Wähle NIEMALS einfach die erste Zeile, das Deckblatt oder organisatorische Hinweise.
+2. Ignoriere universitäre Floskeln (wie "TU Wien", "Institut für...", "Prof. Dr...", "Vorlesungsunterlagen", "Seite 1 von...").
+3. Wenn es sich um ein Buchkapitel handelt, nenne das Hauptthema des Inhalts (z. B. "Pfadabhängigkeit & Ambidexterity in Organisationen" oder "Fall 9 — Der Umbau beginnt vor dem Umbau").
+4. Wenn es eine Klausur oder Prüfung ist, nenne das Prüfungsfach und ggf. Datum/Semester (z. B. "Altklausur Leadership (02.12.2025)").
+5. Wenn es Vorlesungsfolien sind, nenne das spezifische Thema (z. B. "Vorlesung 4: Softwarearchitektur & Microservices").
+6. Länge: Maximal 4 bis 8 Wörter. Kein Punkt am Ende.
+
+Antworte NUR als valides JSON im folgenden Format:
+{
+  "title": "Dein prägnanter, fachlicher Titel"
+}`;
+
+  try {
+    const res = await callUniversalAIJSON({
+      prompt,
+      systemInstruction,
+      provider,
+      apiKey,
+    });
+
+    const parsed = res.parsed;
+    if (parsed && typeof parsed.title === "string" && parsed.title.trim().length > 3) {
+      let cleanTitle = parsed.title.trim().replace(/^["']|["']$/g, "").replace(/\.+$/, "");
+      return cleanTitle;
+    }
+  } catch (err: any) {
+    console.warn("AI Smart Title generation fallback:", err.message);
+  }
+
+  // Fallback to full-text heuristic
+  return suggestDocumentTitleFromText(cleaned, fileName || "");
+}
 
 /**
  * Generates high-yield exam questions using AI (Gemini, OpenAI, Anthropic) from lecture notes & documents.
