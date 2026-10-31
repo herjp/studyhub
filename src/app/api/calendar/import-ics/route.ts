@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { cleanModuleName, classifyEventType, extractCourseCode, groupIcsEventsByCourse, ParsedIcsEvent } from "@/lib/ics-parser";
 
 export async function POST(req: Request) {
   try {
@@ -13,10 +14,24 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { events } = body;
+    const { events, courseGroups: incomingCourseGroups, cleanDuplicatesBeforeImport } = body;
 
-    if (!Array.isArray(events) || events.length === 0) {
-      return NextResponse.json({ error: "Keine Termine zum Importieren übergeben" }, { status: 400 });
+    // Optional: Clean up empty duplicate modules first if requested
+    if (cleanDuplicatesBeforeImport) {
+      const emptyModules = await prisma.module.findMany({
+        where: {
+          semester: { userId: user.id },
+          documents: { none: {} },
+          questions: { none: {} },
+          topics: { none: {} },
+        },
+        select: { id: true },
+      });
+      if (emptyModules.length > 0) {
+        const ids = emptyModules.map((m) => m.id);
+        await prisma.calendarEvent.deleteMany({ where: { moduleId: { in: ids } } });
+        await prisma.module.deleteMany({ where: { id: { in: ids } } });
+      }
     }
 
     // Find user's active semester for new modules
@@ -34,61 +49,146 @@ export async function POST(req: Request) {
       });
     }
 
-    let updatedCount = 0;
-    let createdCount = 0;
+    if (!targetSemester) {
+      return NextResponse.json({ error: "Kein aktives Semester gefunden." }, { status: 400 });
+    }
 
-    for (const ev of events) {
-      if (!ev.dateStr || ev.target === "ignore") continue;
+    // Fetch existing modules for mapping
+    const existingModules = await prisma.module.findMany({
+      where: { semester: { userId: user.id } },
+      select: { id: true, name: true, code: true, semesterId: true },
+    });
 
-      const examDate = new Date(ev.dateStr);
+    // Prepare course groups: either from explicit courseGroups or auto-grouped from raw events
+    let groupsToProcess: any[] = [];
 
-      if (ev.target && ev.target !== "create_new") {
-        // Link to existing module - check ownership
-        const mod = await prisma.module.findUnique({
-          where: { id: ev.target },
-          include: { semester: true },
-        });
+    if (Array.isArray(incomingCourseGroups) && incomingCourseGroups.length > 0) {
+      groupsToProcess = incomingCourseGroups;
+    } else if (Array.isArray(events) && events.length > 0) {
+      groupsToProcess = groupIcsEventsByCourse(events, existingModules);
+    } else {
+      return NextResponse.json({ error: "Keine Termine zum Importieren übergeben" }, { status: 400 });
+    }
 
-        if (mod && mod.semester.userId === user.id) {
-          await prisma.module.update({
-            where: { id: ev.target },
+    let createdModulesCount = 0;
+    let linkedModulesCount = 0;
+    let importedEventsCount = 0;
+
+    for (const group of groupsToProcess) {
+      if (group.action === "ignore") continue;
+
+      const modName = (group.cleanModuleName || "Neues Fach").trim();
+      const courseCode = group.courseCode || extractCourseCode(modName) || null;
+      const subEvents = group.allEvents || group.events || [];
+
+      // Determine exam and test events
+      const examEvents = subEvents.filter((e: any) => e.eventType === "EXAM" || (e.isExam && !/test/i.test(e.summary)));
+      const testEvents = subEvents.filter((e: any) => e.eventType === "TEST" || /test/i.test(e.summary));
+
+      const primaryExam = examEvents[0] || testEvents[0] || null;
+      const primaryExamDate = primaryExam?.dateStr ? new Date(primaryExam.dateStr) : null;
+      const primaryExamTime = primaryExam?.timeStr || null;
+      const primaryExamLocation = primaryExam?.location || null;
+
+      let targetModule: any = null;
+
+      if (group.action === "link" && group.matchedModuleId) {
+        // Link to existing module
+        targetModule = existingModules.find((m) => m.id === group.matchedModuleId);
+        if (targetModule) {
+          // If the module didn't have an exam date yet or if we found a verified exam, update it
+          if (primaryExamDate) {
+            await prisma.module.update({
+              where: { id: targetModule.id },
+              data: {
+                examDate: primaryExamDate,
+                examTime: primaryExamTime,
+                examLocation: primaryExamLocation,
+              },
+            });
+          }
+          linkedModulesCount++;
+        }
+      }
+
+      // If create_new or no existing module matched, create the module EXACTLY ONCE!
+      if (!targetModule && group.action !== "ignore") {
+        // Double-check if a module with this clean name already exists in targetSemester
+        const existingSameName = existingModules.find(
+          (m) => m.semesterId === targetSemester!.id && m.name.toLowerCase().trim() === modName.toLowerCase().trim()
+        );
+
+        if (existingSameName) {
+          targetModule = existingSameName;
+          linkedModulesCount++;
+        } else {
+          targetModule = await prisma.module.create({
             data: {
-              examDate,
-              examTime: ev.timeStr || null,
-              examLocation: ev.location || null,
-              examDescription: ev.description || undefined,
+              semesterId: targetSemester.id,
+              name: modName,
+              code: courseCode,
+              ects: 5,
+              status: "IN_PROGRESS",
+              examDate: primaryExamDate,
+              examTime: primaryExamTime,
+              examLocation: primaryExamLocation,
             },
           });
-          updatedCount++;
+          createdModulesCount++;
         }
-      } else if (ev.target === "create_new" && targetSemester) {
-        // Create new module
-        await prisma.module.create({
-          data: {
-            semesterId: targetSemester.id,
-            name: (ev.newModuleName || ev.summary || "Neues Fach").trim(),
-            ects: Number(ev.newModuleEcts) || 5,
-            status: "IN_PROGRESS",
-            examDate,
-            examTime: ev.timeStr || null,
-            examLocation: ev.location || null,
-            examDescription: ev.description || null,
+      }
+
+      if (!targetModule) continue;
+
+      // Now insert all selected sub-events (lectures, exercises, tests, exams) as CalendarEvents
+      for (const ev of subEvents) {
+        if (!ev.dateStr || ev.eventType === "HOLIDAY" || ev.selected === false) continue;
+
+        const eventDate = new Date(ev.dateStr);
+        let eventType = ev.eventType;
+        if (!eventType || eventType === "OTHER") {
+          eventType = classifyEventType(ev.summary, ev.description);
+        }
+        if (eventType === "HOLIDAY") continue;
+
+        // Ensure we don't insert exact duplicate events
+        const existingEvent = await prisma.calendarEvent.findFirst({
+          where: {
+            moduleId: targetModule.id,
+            title: ev.summary,
+            date: eventDate,
           },
         });
-        createdCount++;
+
+        if (!existingEvent) {
+          await prisma.calendarEvent.create({
+            data: {
+              moduleId: targetModule.id,
+              title: ev.summary,
+              eventType: eventType as any,
+              date: eventDate,
+              startTime: ev.timeStr || null,
+              endTime: ev.endTimeStr || null,
+              location: ev.location || null,
+              description: ev.description || null,
+            },
+          });
+          importedEventsCount++;
+        }
       }
     }
 
     return NextResponse.json({
       success: true,
-      importedCount: updatedCount + createdCount,
-      updatedCount,
-      createdCount,
+      createdModulesCount,
+      linkedModulesCount,
+      importedEventsCount,
+      message: `Erfolgreich importiert: ${createdModulesCount} neue Module erstellt, ${linkedModulesCount} Module aktualisiert, ${importedEventsCount} Vorlesungs- & Prüfungstermine eingetragen!`,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error importing ICS events:", error);
     return NextResponse.json(
-      { error: "Fehler beim Verarbeiten des ICS-Imports" },
+      { error: "Fehler beim Verarbeiten des ICS-Imports: " + error.message },
       { status: 500 }
     );
   }

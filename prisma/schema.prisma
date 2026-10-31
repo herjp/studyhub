@@ -64,6 +64,31 @@ model Module {
   documents   Document[]
   topics      Topic[]
   questions   Question[]
+  events      CalendarEvent[]
+}
+
+enum EventType {
+  EXAM
+  TEST
+  LECTURE
+  EXERCISE
+  DEADLINE
+  OTHER
+}
+
+model CalendarEvent {
+  id          String     @id @default(cuid())
+  moduleId    String
+  title       String
+  eventType   EventType  @default(LECTURE)
+  date        DateTime
+  startTime   String?
+  endTime     String?
+  location    String?
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  module      Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 }
 
 enum DocumentCategory {

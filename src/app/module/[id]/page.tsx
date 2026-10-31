@@ -39,7 +39,9 @@ import {
   Plus,
   X,
   MessageSquareText,
+  ExternalLink,
 } from "lucide-react";
+import { getCampusMapInfo } from "@/lib/campus-maps";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
 import { FahrschulBar } from "@/components/FahrschulBar";
 import { CircularProgress } from "@/components/CircularProgress";
@@ -1355,12 +1357,108 @@ function ModuleDetailContent() {
                       <Clock className="w-3.5 h-3.5 text-slate-400" /> Uhrzeit: {moduleData.examTime}
                     </span>
                   )}
-                  {moduleData.examLocation && (
-                    <span className="flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400" /> Raum/Ort: {moduleData.examLocation}
-                    </span>
-                  )}
+                  {moduleData.examLocation && (() => {
+                    const mapInfo = getCampusMapInfo(moduleData.examLocation);
+                    return (
+                      <span className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-slate-400">Raum/Ort:</span>
+                        {mapInfo.url ? (
+                          <a
+                            href={mapInfo.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:underline font-bold"
+                            title={`In ${mapInfo.providerName} öffnen`}
+                          >
+                            <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                            <span>{mapInfo.cleanLocation}</span>
+                            <ExternalLink className="w-3 h-3 text-sky-500" />
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-bold ml-0.5">
+                              {mapInfo.badgeLabel}
+                            </span>
+                          </a>
+                        ) : (
+                          <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                            <MapPin className="w-3.5 h-3.5 text-rose-500" /> {moduleData.examLocation}
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })()}
                 </div>
+
+                {moduleData.events && moduleData.events.length > 0 && (
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 mt-2 space-y-2">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                      <span className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                        Zugeordnete Vorlesungen & Termine ({moduleData.events.length})
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+                      {moduleData.events.map((evt: any) => {
+                        const evtMap = evt.location ? getCampusMapInfo(evt.location) : null;
+                        let icon = "📚";
+                        let badgeColor =
+                          "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 dark:border-sky-800";
+                        if (evt.eventType === "EXAM") {
+                          icon = "🔥";
+                          badgeColor =
+                            "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border-rose-200 dark:border-rose-800 font-bold";
+                        } else if (evt.eventType === "TEST") {
+                          icon = "⚡";
+                          badgeColor =
+                            "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800 font-bold";
+                        } else if (evt.eventType === "EXERCISE") {
+                          icon = "✏️";
+                          badgeColor =
+                            "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800";
+                        }
+
+                        return (
+                          <div
+                            key={evt.id}
+                            className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 text-xs space-y-1"
+                          >
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-md border ${badgeColor}`}>
+                                {icon} {evt.eventType === "EXAM" ? "Klausur" : evt.eventType === "TEST" ? "Test" : evt.eventType === "EXERCISE" ? "Übung" : "Vorlesung"}
+                              </span>
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                {new Date(evt.date).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                })}
+                              </span>
+                            </div>
+                            <div className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={evt.title}>
+                              {evt.title}
+                            </div>
+                            <div className="flex items-center justify-between gap-1 text-[11px] text-slate-500">
+                              {evt.startTime && <span>{evt.startTime} Uhr</span>}
+                              {evt.location && evtMap && (
+                                evtMap.url ? (
+                                  <a
+                                    href={evtMap.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-0.5 truncate max-w-[120px]"
+                                    title={`In ${evtMap.providerName} öffnen`}
+                                  >
+                                    <MapPin className="w-2.5 h-2.5 text-rose-500 flex-shrink-0" />
+                                    <span className="truncate">{evtMap.cleanLocation}</span>
+                                  </a>
+                                ) : (
+                                  <span className="truncate max-w-[120px]">{evt.location}</span>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <button

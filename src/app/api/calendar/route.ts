@@ -60,10 +60,43 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json(enriched);
+    // Also fetch all sub-events (lectures, tests, exercises) from CalendarEvent
+    const calendarEvents = await prisma.calendarEvent.findMany({
+      where: {
+        module: {
+          semester: { userId: user.id },
+        },
+      },
+      include: {
+        module: {
+          include: { semester: true },
+        },
+      },
+      orderBy: { date: "asc" },
+    });
+
+    const enrichedEvents = calendarEvents.map((evt) => ({
+      id: evt.id,
+      moduleId: evt.moduleId,
+      moduleName: evt.module.name,
+      moduleCode: evt.module.code,
+      semesterName: evt.module.semester.name,
+      title: evt.title,
+      eventType: evt.eventType,
+      date: evt.date,
+      startTime: evt.startTime,
+      endTime: evt.endTime,
+      location: evt.location,
+      description: evt.description,
+    }));
+
+    return NextResponse.json({
+      exams: enriched,
+      events: enrichedEvents,
+    });
   } catch (error) {
     console.error("Failed to fetch calendar exams:", error);
-    return NextResponse.json({ error: "Fehler beim Laden der Klausurtermine" }, { status: 500 });
+    return NextResponse.json({ error: "Fehler beim Laden der Termine" }, { status: 500 });
   }
 }
 

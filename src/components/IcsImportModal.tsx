@@ -12,11 +12,25 @@ import {
   Clock,
   MapPin,
   Check,
-  HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  ExternalLink,
+  BookOpen,
+  Flame,
+  Zap,
+  GraduationCap,
+  Layers,
 } from "lucide-react";
 import { Portal } from "./Portal";
 import { useLanguage } from "@/lib/i18n";
-import { parseIcsContent, ParsedIcsEvent } from "@/lib/ics-parser";
+import {
+  parseIcsContent,
+  groupIcsEventsByCourse,
+  CourseGroup,
+  ParsedIcsEvent,
+} from "@/lib/ics-parser";
+import { getCampusMapInfo } from "@/lib/campus-maps";
 
 interface IcsImportModalProps {
   isOpen: boolean;
@@ -35,12 +49,15 @@ export function IcsImportModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [fileName, setFileName] = useState<string | null>(null);
-  const [events, setEvents] = useState<ParsedIcsEvent[]>([]);
-  const [filterMode, setFilterMode] = useState<"all" | "exams" | "selected">("all");
-  const [eventTargets, setEventTargets] = useState<Record<string, string>>({});
+  const [courseGroups, setCourseGroups] = useState<CourseGroup[]>([]);
+  const [rawEventsCount, setRawEventsCount] = useState(0);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [cleanDuplicates, setCleanDuplicates] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [successCount, setSuccessCount] = useState<number | null>(null);
+  const [successInfo, setSuccessInfo] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -52,7 +69,7 @@ export function IcsImportModal({
 
   const processFile = (file: File) => {
     setError(null);
-    setSuccessCount(null);
+    setSuccessInfo(null);
     setFileName(file.name);
 
     const reader = new FileReader();
@@ -66,30 +83,22 @@ export function IcsImportModal({
               ? "Keine gültigen Termine (VEVENT) in dieser Datei gefunden."
               : "No valid events (VEVENT) found in this file."
           );
-          setEvents([]);
+          setCourseGroups([]);
           return;
         }
 
-        setEvents(parsed);
+        setRawEventsCount(parsed.length);
+        const grouped = groupIcsEventsByCourse(parsed, modules);
+        setCourseGroups(grouped);
 
-        // Pre-fill target assignments
-        const initialTargets: Record<string, string> = {};
-        parsed.forEach((ev) => {
-          if (ev.matchedModuleId) {
-            initialTargets[ev.uid] = ev.matchedModuleId;
-          } else if (ev.isExam) {
-            initialTargets[ev.uid] = "create_new";
-          } else {
-            initialTargets[ev.uid] = "create_new";
+        // Auto-expand courses that have tests or exams
+        const initialExpanded: Record<string, boolean> = {};
+        grouped.forEach((g) => {
+          if (g.examCount > 0 || g.testCount > 0) {
+            initialExpanded[g.cleanModuleName] = true;
           }
         });
-        setEventTargets(initialTargets);
-
-        // If there are exams, set filter to exams by default for better focus
-        const hasExams = parsed.some((p) => p.isExam);
-        if (hasExams) {
-          setFilterMode("exams");
-        }
+        setExpandedGroups(initialExpanded);
       } catch (err: any) {
         setError(
           lang === "de"
@@ -112,27 +121,68 @@ export function IcsImportModal({
     }
   };
 
-  const toggleEventSelected = (uid: string) => {
-    setEvents((prev) =>
-      prev.map((ev) => (ev.uid === uid ? { ...ev, selected: !ev.selected } : ev))
+  const toggleGroupExpanded = (modName: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [modName]: !prev[modName] }));
+  };
+
+  const handleGroupActionChange = (
+    modName: string,
+    action: "link" | "create_new" | "ignore",
+    matchedModuleId?: string | null
+  ) => {
+    setCourseGroups((prev) =>
+      prev.map((g) => {
+        if (g.cleanModuleName !== modName) return g;
+        return {
+          ...g,
+          action,
+          matchedModuleId: action === "link" ? matchedModuleId || g.matchedModuleId : null,
+        };
+      })
     );
   };
 
-  const selectAll = (selected: boolean) => {
-    setEvents((prev) => prev.map((ev) => ({ ...ev, selected })));
+  const toggleSubEvent = (modName: string, uid: string) => {
+    setCourseGroups((prev) =>
+      prev.map((g) => {
+        if (g.cleanModuleName !== modName) return g;
+        return {
+          ...g,
+          allEvents: g.allEvents.map((ev) =>
+            ev.uid === uid ? { ...ev, selected: !ev.selected } : ev
+          ),
+        };
+      })
+    );
   };
 
-  const handleTargetChange = (uid: string, target: string) => {
-    setEventTargets((prev) => ({ ...prev, [uid]: target }));
+  const handleQuickCleanup = async () => {
+    setIsCleaning(true);
+    setCleanupMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/calendar/cleanup-duplicates", {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fehler beim Bereinigen");
+
+      setCleanupMessage(data.message);
+      onSuccess(); // Refresh modules in background
+    } catch (err: any) {
+      setError(err.message || "Fehler beim Bereinigen");
+    } finally {
+      setIsCleaning(false);
+    }
   };
 
   const handleSubmit = async () => {
-    const selectedEvents = events.filter((ev) => ev.selected);
-    if (selectedEvents.length === 0) {
+    const activeGroups = courseGroups.filter((g) => g.action !== "ignore");
+    if (activeGroups.length === 0) {
       setError(
         lang === "de"
-          ? "Bitte wähle mindestens einen Termin zum Importieren aus."
-          : "Please select at least one event to import."
+          ? "Bitte wähle mindestens ein Fach zum Importieren aus."
+          : "Please select at least one course to import."
       );
       return;
     }
@@ -141,16 +191,8 @@ export function IcsImportModal({
     setError(null);
 
     const payload = {
-      events: selectedEvents.map((ev) => ({
-        summary: ev.summary,
-        dateStr: ev.dateStr,
-        timeStr: ev.timeStr,
-        location: ev.location,
-        description: ev.description,
-        target: eventTargets[ev.uid] || "create_new",
-        newModuleName: ev.summary,
-        newModuleEcts: 5,
-      })),
+      courseGroups: activeGroups,
+      cleanDuplicatesBeforeImport: cleanDuplicates,
     };
 
     try {
@@ -165,11 +207,11 @@ export function IcsImportModal({
         throw new Error(data.error || "Import fehlgeschlagen");
       }
 
-      setSuccessCount(data.importedCount);
+      setSuccessInfo(data.message);
       setTimeout(() => {
         onSuccess();
         onClose();
-      }, 1500);
+      }, 1800);
     } catch (err: any) {
       setError(err.message || "Fehler beim Import");
     } finally {
@@ -177,13 +219,10 @@ export function IcsImportModal({
     }
   };
 
-  const filteredEvents = events.filter((ev) => {
-    if (filterMode === "exams") return ev.isExam;
-    if (filterMode === "selected") return ev.selected;
-    return true;
-  });
-
-  const selectedCount = events.filter((e) => e.selected).length;
+  const totalExams = courseGroups.reduce((acc, g) => acc + g.examCount, 0);
+  const totalTests = courseGroups.reduce((acc, g) => acc + g.testCount, 0);
+  const totalLectures = courseGroups.reduce((acc, g) => acc + g.lectureCount, 0);
+  const totalExercises = courseGroups.reduce((acc, g) => acc + g.exerciseCount, 0);
 
   return (
     <Portal>
@@ -197,15 +236,15 @@ export function IcsImportModal({
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  {lang === "de" ? "Kalender (.ics) importieren" : "Import Calendar (.ics)"}
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
-                    Auto-Match
+                  {lang === "de" ? "Stundenplan & Kalender (.ics) importieren" : "Import Calendar (.ics)"}
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-indigo-500" /> Smart Grouping
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500">
                   {lang === "de"
-                    ? "Importiere deinen Stundenplan, Termine, Klausuren oder Fristen aus deinem Kalender (.ics)."
-                    : "Import your timetable, schedule, appointments, exams or deadlines from your calendar (.ics)."}
+                    ? "Gruppiert Vorlesungen, Übungen und Tests automatisch nach Modul – kein Modul-Chaos!"
+                    : "Groups lectures, exercises, and tests under their course modules automatically."}
                 </p>
               </div>
             </div>
@@ -219,8 +258,37 @@ export function IcsImportModal({
 
           {/* Modal Body */}
           <div className="py-4 space-y-4 overflow-y-auto flex-1 pr-1">
+            {/* Quick Cleanup Tool if user has messy dummy modules */}
+            <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5 text-amber-900 dark:text-amber-200">
+                <Trash2 className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                <span>
+                  {lang === "de"
+                    ? "Alte oder leere Termin-Duplikate im Semester vorhanden?"
+                    : "Clean up empty duplicate appointments from previous imports?"}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleQuickCleanup}
+                disabled={isCleaning}
+                className="px-3 py-1.5 rounded-xl font-bold bg-amber-200/80 hover:bg-amber-300 dark:bg-amber-900/60 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-100 transition-all flex items-center gap-1 whitespace-nowrap disabled:opacity-50"
+              >
+                {isCleaning
+                  ? (lang === "de" ? "Bereinige..." : "Cleaning...")
+                  : (lang === "de" ? "🧹 Leere Duplikate löschen" : "🧹 Clean empty duplicates")}
+              </button>
+            </div>
+
+            {cleanupMessage && (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                <span>{cleanupMessage}</span>
+              </div>
+            )}
+
             {/* File Upload Dropzone */}
-            {events.length === 0 ? (
+            {courseGroups.length === 0 ? (
               <div
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
@@ -244,174 +312,291 @@ export function IcsImportModal({
                 </h4>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
                   {lang === "de"
-                    ? "Unterstützt alle Standard-Kalenderexporte (HISinOne, Moodle, Stud.IP, Outlook, Apple Calendar, Google Calendar)."
-                    : "Supports all standard campus exports (HISinOne, Moodle, Stud.IP, Apple/Google Calendar)."}
+                    ? "Unterstützt TU Wien TISS, Moodle, Stud.IP, HISinOne, Google & Apple Calendar. Erkennt automatisch Klausuren, Tests und Vorlesungen!"
+                    : "Supports TU Wien TISS, Moodle, Stud.IP, Apple/Google Calendar. Automatically detects exams, tests, and lectures!"}
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {/* File info bar */}
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs">
-                    <FileCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span className="font-bold text-slate-800 dark:text-slate-200">{fileName}</span>
-                    <span className="text-slate-400">({events.length} {lang === "de" ? "Termine erkannt" : "events found"})</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEvents([]);
-                      setFileName(null);
-                    }}
-                    className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
-                  >
-                    {lang === "de" ? "Andere Datei wählen" : "Change File"}
-                  </button>
-                </div>
-
-                {/* Filter and Selection Tools */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs">
+              <div className="space-y-3.5">
+                {/* File info and group statistics banner */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <FileCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{fileName}</span>
+                      <span className="text-slate-400">
+                        ({rawEventsCount} {lang === "de" ? "Termine" : "events"} →{" "}
+                        <strong className="text-indigo-600 dark:text-indigo-400">
+                          {courseGroups.length} {lang === "de" ? "Module" : "modules"}
+                        </strong>
+                        )
+                      </span>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setFilterMode("all")}
-                      className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                        filterMode === "all"
-                          ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
-                          : "text-slate-500 hover:text-slate-800"
-                      }`}
+                      onClick={() => {
+                        setCourseGroups([]);
+                        setFileName(null);
+                      }}
+                      className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
                     >
-                      {lang === "de" ? `Alle (${events.length})` : `All (${events.length})`}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFilterMode("exams")}
-                      className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                        filterMode === "exams"
-                          ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
-                          : "text-slate-500 hover:text-slate-800"
-                      }`}
-                    >
-                      {lang === "de"
-                        ? `Nur Klausuren (${events.filter((e) => e.isExam).length})`
-                        : `Exams Only (${events.filter((e) => e.isExam).length})`}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setFilterMode("selected")}
-                      className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                        filterMode === "selected"
-                          ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
-                          : "text-slate-500 hover:text-slate-800"
-                      }`}
-                    >
-                      {lang === "de" ? `Ausgewählt (${selectedCount})` : `Selected (${selectedCount})`}
+                      {lang === "de" ? "Andere Datei wählen" : "Change File"}
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => selectAll(true)}
-                      className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-semibold"
-                    >
-                      {lang === "de" ? "Alle markieren" : "Select All"}
-                    </button>
-                    <span className="text-slate-300">|</span>
-                    <button
-                      type="button"
-                      onClick={() => selectAll(false)}
-                      className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-semibold"
-                    >
-                      {lang === "de" ? "Keine" : "Deselect All"}
-                    </button>
+                  {/* Summary badges */}
+                  <div className="flex flex-wrap gap-2 text-[11px] pt-1">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
+                      <Layers className="w-3 h-3" /> {courseGroups.length} {lang === "de" ? "Module" : "Courses"}
+                    </span>
+                    {totalExams > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-bold border border-rose-200 dark:border-rose-800">
+                        <Flame className="w-3 h-3 text-rose-500" /> {totalExams} {lang === "de" ? "Klausuren" : "Exams"}
+                      </span>
+                    )}
+                    {totalTests > 0 && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-bold border border-amber-200 dark:border-amber-800">
+                        <Zap className="w-3 h-3 text-amber-500" /> {totalTests} {lang === "de" ? "Tests" : "Tests"}
+                      </span>
+                    )}
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-semibold border border-sky-200 dark:border-sky-800">
+                      <BookOpen className="w-3 h-3 text-sky-500" /> {totalLectures + totalExercises}{" "}
+                      {lang === "de" ? "Vorlesungen/Übungen" : "Lectures/Exercises"}
+                    </span>
                   </div>
                 </div>
 
-                {/* Event Cards List */}
-                <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
-                  {filteredEvents.map((ev) => {
-                    const currentTarget = eventTargets[ev.uid] || "create_new";
+                {/* Pre-import cleanup checkbox */}
+                <label className="flex items-center gap-2.5 text-xs text-slate-700 dark:text-slate-300 cursor-pointer select-none px-1">
+                  <input
+                    type="checkbox"
+                    checked={cleanDuplicates}
+                    onChange={(e) => setCleanDuplicates(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  />
+                  <span>
+                    {lang === "de"
+                      ? "Leere Modul-Einträge ohne Dokumente vor dem Import bereinigen (empfohlen)"
+                      : "Clean empty dummy modules before importing (recommended)"}
+                  </span>
+                </label>
+
+                {/* Course Groups List */}
+                <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                  {courseGroups.map((group) => {
+                    const isExpanded = Boolean(expandedGroups[group.cleanModuleName]);
+                    const isIgnored = group.action === "ignore";
+
                     return (
                       <div
-                        key={ev.uid}
-                        className={`p-3.5 rounded-2xl border transition-all ${
-                          ev.selected
-                            ? "bg-white dark:bg-slate-800/90 border-indigo-200 dark:border-indigo-800 shadow-sm"
-                            : "bg-slate-50/60 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-800 opacity-60"
+                        key={group.cleanModuleName}
+                        className={`rounded-2xl border transition-all ${
+                          isIgnored
+                            ? "bg-slate-50/50 dark:bg-slate-900/30 border-slate-200/50 dark:border-slate-800 opacity-50"
+                            : "bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700/80 shadow-sm"
                         }`}
                       >
-                        <div className="flex items-start gap-3">
-                          <input
-                            type="checkbox"
-                            checked={ev.selected}
-                            onChange={() => toggleEventSelected(ev.uid)}
-                            className="w-4 h-4 mt-1 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                          />
-
-                          <div className="flex-1 min-w-0 space-y-1.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                                {ev.summary}
-                              </h5>
-                              {ev.isExam && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex-shrink-0">
-                                  🔥 {lang === "de" ? "Klausur" : "Exam"}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
-                              <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                <CalendarIcon className="w-3 h-3 text-sky-500" />
-                                {ev.dateStr}
-                              </span>
-                              {ev.timeStr && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="w-3 h-3" />
-                                  {ev.timeStr} Uhr
-                                </span>
-                              )}
-                              {ev.location && (
-                                <span className="flex items-center gap-1 truncate max-w-[200px]">
-                                  <MapPin className="w-3 h-3 text-rose-500" />
-                                  {ev.location}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Module Assignment Selector */}
-                            <div className="pt-1.5 flex items-center gap-2">
-                              <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
-                                {lang === "de" ? "Zuordnen zu:" : "Assign to:"}
-                              </span>
-                              <select
-                                value={currentTarget}
-                                onChange={(e) => handleTargetChange(ev.uid, e.target.value)}
-                                className="flex-1 text-xs py-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 truncate"
-                              >
-                                {ev.matchedModuleId && (
-                                  <option value={ev.matchedModuleId}>
-                                    ✨ {ev.matchedModuleName} (Auto-Match)
-                                  </option>
+                        {/* Group Header */}
+                        <div className="p-3.5 space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                                  {group.cleanModuleName}
+                                </h4>
+                                {group.courseCode && (
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                                    {group.courseCode}
+                                  </span>
                                 )}
-                                <option value="create_new">
-                                  ➕ {lang === "de" ? "Als neues Modul anlegen (5 ECTS)" : "Create as new module (5 ECTS)"}
-                                </option>
-                                <optgroup label={lang === "de" ? "Bestehende Fächer:" : "Existing Modules:"}>
-                                  {modules.map((m) => (
-                                    <option key={m.id} value={m.id}>
-                                      {m.code ? `[${m.code}] ` : ""}{m.name}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                                <option value="ignore">
-                                  🚫 {lang === "de" ? "Nicht importieren" : "Do not import"}
-                                </option>
-                              </select>
+                              </div>
+
+                              {/* Badges for Event Types */}
+                              <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1 flex-wrap">
+                                {group.examCount > 0 && (
+                                  <span className="inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400">
+                                    <Flame className="w-3 h-3" /> {group.examCount} Klausur
+                                  </span>
+                                )}
+                                {group.testCount > 0 && (
+                                  <span className="inline-flex items-center gap-1 font-bold text-amber-600 dark:text-amber-400">
+                                    <Zap className="w-3 h-3" /> {group.testCount} Test
+                                  </span>
+                                )}
+                                {group.lectureCount > 0 && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <BookOpen className="w-3 h-3 text-sky-500" /> {group.lectureCount} Vorlesung(en)
+                                  </span>
+                                )}
+                                {group.exerciseCount > 0 && (
+                                  <span className="inline-flex items-center gap-1">
+                                    ✏️ {group.exerciseCount} Übung(en)
+                                  </span>
+                                )}
+                              </div>
                             </div>
+
+                            {/* Toggle Details Button */}
+                            <button
+                              type="button"
+                              onClick={() => toggleGroupExpanded(group.cleanModuleName)}
+                              className="px-2 py-1 text-[11px] font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 flex items-center gap-1 flex-shrink-0"
+                            >
+                              <span>{group.allEvents.length} Termine</span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Action Selector */}
+                          <div className="pt-1.5 flex items-center gap-2 text-xs">
+                            <span className="font-semibold text-slate-500 whitespace-nowrap">
+                              {lang === "de" ? "Aktion:" : "Action:"}
+                            </span>
+                            <select
+                              value={
+                                group.action === "ignore"
+                                  ? "ignore"
+                                  : group.action === "link" && group.matchedModuleId
+                                  ? group.matchedModuleId
+                                  : "create_new"
+                              }
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === "ignore") {
+                                  handleGroupActionChange(group.cleanModuleName, "ignore");
+                                } else if (val === "create_new") {
+                                  handleGroupActionChange(group.cleanModuleName, "create_new");
+                                } else {
+                                  handleGroupActionChange(group.cleanModuleName, "link", val);
+                                }
+                              }}
+                              className="flex-1 text-xs py-1 px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 truncate"
+                            >
+                              {group.matchedModuleId && (
+                                <option value={group.matchedModuleId}>
+                                  ✨ Zuordnen zu "{group.matchedModuleName}" (Auto-Match)
+                                </option>
+                              )}
+                              <option value="create_new">
+                                ➕ {lang === "de" ? "Als neues Modul erstellen (5 ECTS)" : "Create as new module (5 ECTS)"}
+                              </option>
+                              <optgroup label={lang === "de" ? "Bestehende Module:" : "Existing Modules:"}>
+                                {modules.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.code ? `[${m.code}] ` : ""}{m.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                              <option value="ignore">
+                                🚫 {lang === "de" ? "Dieses Fach ignorieren" : "Ignore this course"}
+                              </option>
+                            </select>
                           </div>
                         </div>
+
+                        {/* Expandable Sub-Events List */}
+                        {isExpanded && (
+                          <div className="p-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/40 rounded-b-2xl space-y-2">
+                            <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between">
+                              <span>Termine für {group.cleanModuleName}:</span>
+                              <span className="text-[10px] text-slate-400 font-normal">
+                                Häkchen setzen um Termin zu importieren
+                              </span>
+                            </div>
+
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                              {group.allEvents.map((ev) => {
+                                const mapInfo = getCampusMapInfo(ev.location);
+                                let typeBadge = (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/60 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium">
+                                    Termin
+                                  </span>
+                                );
+                                if (ev.eventType === "EXAM") {
+                                  typeBadge = (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                                      🔥 Klausur
+                                    </span>
+                                  );
+                                } else if (ev.eventType === "TEST") {
+                                  typeBadge = (
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                      ⚡ Test
+                                    </span>
+                                  );
+                                } else if (ev.eventType === "LECTURE") {
+                                  typeBadge = (
+                                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+                                      Vorlesung
+                                    </span>
+                                  );
+                                } else if (ev.eventType === "EXERCISE") {
+                                  typeBadge = (
+                                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                      Übung
+                                    </span>
+                                  );
+                                }
+
+                                return (
+                                  <div
+                                    key={ev.uid}
+                                    className={`p-2 rounded-xl border flex items-center justify-between gap-2 text-xs transition-colors ${
+                                      ev.selected
+                                        ? "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+                                        : "bg-slate-100/50 dark:bg-slate-900/50 border-transparent opacity-40"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                      <input
+                                        type="checkbox"
+                                        checked={ev.selected}
+                                        onChange={() => toggleSubEvent(group.cleanModuleName, ev.uid)}
+                                        className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                      />
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                          {typeBadge}
+                                          <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                                            {ev.summary}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                                          <span>{ev.dateStr}</span>
+                                          {ev.timeStr && <span>• {ev.timeStr} Uhr</span>}
+                                          {ev.location && (
+                                            <span className="flex items-center gap-1 truncate">
+                                              • <MapPin className="w-3 h-3 text-rose-500 flex-shrink-0" />
+                                              {mapInfo.url ? (
+                                                <a
+                                                  href={mapInfo.url}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="text-sky-600 hover:underline flex items-center gap-0.5"
+                                                  title={`In ${mapInfo.providerName} öffnen`}
+                                                >
+                                                  {mapInfo.cleanLocation}
+                                                  <ExternalLink className="w-2.5 h-2.5" />
+                                                </a>
+                                              ) : (
+                                                <span>{ev.location}</span>
+                                              )}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -426,14 +611,10 @@ export function IcsImportModal({
               </div>
             )}
 
-            {successCount !== null && (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2">
+            {successInfo && (
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                <span>
-                  {lang === "de"
-                    ? `Erfolgreich ${successCount} Termine in den Kalender übernommen!`
-                    : `Successfully imported ${successCount} events into the calendar!`}
-                </span>
+                <span>{successInfo}</span>
               </div>
             )}
           </div>
@@ -448,19 +629,19 @@ export function IcsImportModal({
               {t.cancel}
             </button>
 
-            {events.length > 0 && (
+            {courseGroups.length > 0 && (
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={isSubmitting || selectedCount === 0}
+                disabled={isSubmitting || courseGroups.filter((g) => g.action !== "ignore").length === 0}
                 className="inline-flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/20 transition-all disabled:opacity-50"
               >
                 <Check className="w-4 h-4" />
                 {isSubmitting
                   ? (lang === "de" ? "Wird importiert..." : "Importing...")
                   : (lang === "de"
-                      ? `${selectedCount} Termine übernehmen`
-                      : `Import ${selectedCount} Events`)}
+                      ? `${courseGroups.filter((g) => g.action !== "ignore").length} Module & Termine importieren`
+                      : `Import ${courseGroups.filter((g) => g.action !== "ignore").length} Modules & Events`)}
               </button>
             )}
           </div>

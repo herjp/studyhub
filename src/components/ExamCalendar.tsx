@@ -18,11 +18,15 @@ import {
   Search,
   Check,
   UploadCloud,
+  ExternalLink,
+  Zap,
+  BookOpen,
 } from "lucide-react";
 import { FahrschulBar } from "./FahrschulBar";
 import { Portal } from "./Portal";
 import { IcsImportModal } from "./IcsImportModal";
 import { useLanguage } from "@/lib/i18n";
+import { getCampusMapInfo } from "@/lib/campus-maps";
 
 export interface CalendarExam {
   id: string;
@@ -40,12 +44,46 @@ export interface CalendarExam {
   readinessScore: number;
 }
 
+export interface CalendarSubEvent {
+  id: string;
+  moduleId: string;
+  moduleName: string;
+  moduleCode?: string | null;
+  semesterName: string;
+  title: string;
+  eventType: "EXAM" | "TEST" | "LECTURE" | "EXERCISE" | "DEADLINE" | "OTHER";
+  date: string;
+  startTime?: string | null;
+  endTime?: string | null;
+  location?: string | null;
+  description?: string | null;
+}
+
+export interface UnifiedCalendarItem {
+  id: string;
+  moduleId: string;
+  moduleName: string;
+  moduleCode?: string | null;
+  semesterName: string;
+  title: string;
+  eventType: "EXAM" | "TEST" | "LECTURE" | "EXERCISE" | "DEADLINE" | "OTHER";
+  date: string; // ISO date string or YYYY-MM-DD
+  time?: string | null;
+  location?: string | null;
+  description?: string | null;
+  readinessScore?: number;
+  daysUntilExam?: number;
+  isDirectExam?: boolean;
+}
+
 export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) {
   const { lang, t } = useLanguage();
   const [exams, setExams] = useState<CalendarExam[]>([]);
+  const [subEvents, setSubEvents] = useState<CalendarSubEvent[]>([]);
   const [modules, setModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
+  const [eventFilter, setEventFilter] = useState<"all" | "exams_tests" | "lectures">("all");
 
   // Current calendar month view
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -62,15 +100,21 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [autoMatchedModule, setAutoMatchedModule] = useState<any>(null);
 
-  const fetchExams = async () => {
+  const fetchCalendarData = async () => {
     try {
-      const [resExams, resModules] = await Promise.all([
+      const [resCal, resModules] = await Promise.all([
         fetch("/api/calendar"),
         fetch("/api/modules"),
       ]);
-      if (resExams.ok) {
-        const data = await resExams.json();
-        setExams(data);
+      if (resCal.ok) {
+        const data = await resCal.json();
+        if (Array.isArray(data)) {
+          setExams(data);
+          setSubEvents([]);
+        } else {
+          setExams(data.exams || []);
+          setSubEvents(data.events || []);
+        }
       }
       if (resModules.ok) {
         const modData = await resModules.json();
@@ -84,7 +128,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   };
 
   useEffect(() => {
-    fetchExams();
+    fetchCalendarData();
   }, []);
 
   // Live Auto-Matching as user types search query
@@ -140,7 +184,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
 
       if (res.ok) {
         setIsAddModalOpen(false);
-        fetchExams();
+        fetchCalendarData();
         if (onExamUpdated) onExamUpdated();
       }
     } catch (err) {
@@ -158,43 +202,115 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
 
+  // Build unified calendar items list
+  const unifiedItems: UnifiedCalendarItem[] = [];
+
+  // 1. Add module exams
+  exams.forEach((exam) => {
+    unifiedItems.push({
+      id: `exam-${exam.id}`,
+      moduleId: exam.id,
+      moduleName: exam.name,
+      moduleCode: exam.code,
+      semesterName: exam.semesterName,
+      title: `${exam.code ? `[${exam.code}] ` : ""}${exam.name}`,
+      eventType: "EXAM",
+      date: exam.examDate,
+      time: exam.examTime,
+      location: exam.examLocation,
+      description: exam.examDescription,
+      readinessScore: exam.readinessScore,
+      daysUntilExam: exam.daysUntilExam,
+      isDirectExam: true,
+    });
+  });
+
+  // 2. Add calendar sub-events (lectures, tests, exercises)
+  subEvents.forEach((evt) => {
+    // Deduplicate if an exam event already exists on the same day for this module
+    const evtDateStr = new Date(evt.date).toISOString().split("T")[0];
+    const isDuplicateExam =
+      evt.eventType === "EXAM" &&
+      exams.some(
+        (e) =>
+          e.id === evt.moduleId &&
+          new Date(e.examDate).toISOString().split("T")[0] === evtDateStr
+      );
+
+    if (!isDuplicateExam) {
+      const diffMs = new Date(evt.date).getTime() - new Date().getTime();
+      const daysUntil = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+      unifiedItems.push({
+        id: `event-${evt.id}`,
+        moduleId: evt.moduleId,
+        moduleName: evt.moduleName,
+        moduleCode: evt.moduleCode,
+        semesterName: evt.semesterName,
+        title: evt.title,
+        eventType: evt.eventType,
+        date: evt.date,
+        time: evt.startTime ? `${evt.startTime}${evt.endTime ? ` – ${evt.endTime}` : ""}` : null,
+        location: evt.location,
+        description: evt.description,
+        daysUntilExam: daysUntil,
+        isDirectExam: false,
+      });
+    }
+  });
+
+  // Filter unified items
+  const filteredItems = unifiedItems.filter((item) => {
+    if (eventFilter === "exams_tests") {
+      return item.eventType === "EXAM" || item.eventType === "TEST";
+    }
+    if (eventFilter === "lectures") {
+      return item.eventType === "LECTURE" || item.eventType === "EXERCISE";
+    }
+    return true;
+  });
+
+  // Sort by date ascending
+  filteredItems.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
   // Month calculations
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
-  const monthNames = lang === "de"
-    ? [
-        "Januar", "Februar", "März", "April", "Mai", "Juni",
-        "Juli", "August", "September", "Oktober", "November", "Dezember",
-      ]
-    : [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
-      ];
+  const monthNames =
+    lang === "de"
+      ? [
+          "Januar", "Februar", "März", "April", "Mai", "Juni",
+          "Juli", "August", "September", "Oktober", "November", "Dezember",
+        ]
+      : [
+          "January", "February", "March", "April", "May", "June",
+          "July", "August", "September", "October", "November", "December",
+        ];
   const firstDayOfMonth = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  // Day offset (0 for Sunday, 1 for Monday...)
   let startOffset = firstDayOfMonth.getDay() - 1;
   if (startOffset === -1) startOffset = 6; // Sunday -> 6
 
   const daysArray = [];
-  // Empty slots before month start
   for (let i = 0; i < startOffset; i++) {
     daysArray.push(null);
   }
-  // Days of current month
   for (let d = 1; d <= daysInMonth; d++) {
     daysArray.push(new Date(year, month, d));
   }
 
-  // Get exams for a specific day
-  const getExamsForDay = (day: Date) => {
+  const getItemsForDay = (day: Date) => {
     const dayStr = day.toISOString().split("T")[0];
-    return exams.filter((e) => {
-      const eStr = new Date(e.examDate).toISOString().split("T")[0];
-      return eStr === dayStr;
+    return filteredItems.filter((item) => {
+      const itemDateStr = new Date(item.date).toISOString().split("T")[0];
+      return itemDateStr === dayStr;
     });
   };
+
+  const examCount = unifiedItems.filter((i) => i.eventType === "EXAM").length;
+  const testCount = unifiedItems.filter((i) => i.eventType === "TEST").length;
+  const lectureCount = unifiedItems.filter((i) => i.eventType === "LECTURE" || i.eventType === "EXERCISE").length;
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-sm p-6 md:p-8 space-y-6">
@@ -214,7 +330,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {/* View toggle */}
           <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs">
             <button
@@ -235,7 +351,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
-              {lang === "de" ? `Terminliste (${exams.length})` : `Schedule List (${exams.length})`}
+              {lang === "de" ? `Terminliste (${filteredItems.length})` : `Schedule List (${filteredItems.length})`}
             </button>
           </div>
 
@@ -255,6 +371,57 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           >
             <Plus className="w-3.5 h-3.5" /> {t.addExamDateBtn}
           </button>
+        </div>
+      </div>
+
+      {/* FILTER TABS */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs">
+          <button
+            type="button"
+            onClick={() => setEventFilter("all")}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+              eventFilter === "all"
+                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
+            }`}
+          >
+            {lang === "de" ? `Alle Termine (${unifiedItems.length})` : `All Events (${unifiedItems.length})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEventFilter("exams_tests")}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+              eventFilter === "exams_tests"
+                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
+            }`}
+          >
+            <Flame className="w-3 h-3 text-rose-500" />
+            {lang === "de"
+              ? `Klausuren & Tests (${examCount + testCount})`
+              : `Exams & Tests (${examCount + testCount})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEventFilter("lectures")}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+              eventFilter === "lectures"
+                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
+            }`}
+          >
+            <BookOpen className="w-3 h-3 text-sky-500" />
+            {lang === "de"
+              ? `Vorlesungen & Übungen (${lectureCount})`
+              : `Lectures & Exercises (${lectureCount})`}
+          </button>
+        </div>
+
+        {/* TU Wien Maps Hint */}
+        <div className="text-[11px] text-slate-400 flex items-center gap-1">
+          <MapPin className="w-3 h-3 text-rose-500" />
+          <span>Hörsäle & Räume direkt mit TU Wien Maps / Campus Maps verlinkt</span>
         </div>
       </div>
 
@@ -311,9 +478,10 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                 );
               }
 
-              const dayExams = getExamsForDay(day);
+              const dayItems = getItemsForDay(day);
               const isToday =
                 new Date().toISOString().split("T")[0] === day.toISOString().split("T")[0];
+              const hasExamsOnDay = dayItems.some((i) => i.eventType === "EXAM" || i.eventType === "TEST");
 
               return (
                 <div
@@ -335,24 +503,50 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                     >
                       {day.getDate()}
                     </span>
-                    {dayExams.length > 0 && (
+                    {hasExamsOnDay && (
                       <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
                     )}
                   </div>
 
-                  {/* Exam Pills inside day slot */}
+                  {/* Pills inside day slot */}
                   <div className="space-y-1 overflow-y-auto max-h-16 scrollbar-none">
-                    {dayExams.map((exam) => (
-                      <Link
-                        key={exam.id}
-                        href={`/module/${exam.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="block px-1.5 py-0.5 rounded-lg bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-[10px] font-bold text-indigo-900 dark:text-indigo-200 truncate border border-indigo-200 dark:border-indigo-800"
-                      >
-                        {exam.code ? `${exam.code}: ` : ""}
-                        {exam.name}
-                      </Link>
-                    ))}
+                    {dayItems.map((item) => {
+                      let badgeStyles =
+                        "bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-900 dark:text-indigo-200 border-indigo-200 dark:border-indigo-800";
+                      let icon = "📅";
+
+                      if (item.eventType === "EXAM") {
+                        badgeStyles =
+                          "bg-rose-100 hover:bg-rose-200 dark:bg-rose-950 dark:hover:bg-rose-900 text-rose-900 dark:text-rose-200 border-rose-200 dark:border-rose-800 font-bold";
+                        icon = "🔥";
+                      } else if (item.eventType === "TEST") {
+                        badgeStyles =
+                          "bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-200 border-amber-200 dark:border-amber-800 font-bold";
+                        icon = "⚡";
+                      } else if (item.eventType === "LECTURE") {
+                        badgeStyles =
+                          "bg-sky-100 hover:bg-sky-200 dark:bg-sky-950 dark:hover:bg-sky-900 text-sky-900 dark:text-sky-200 border-sky-200 dark:border-sky-800";
+                        icon = "📚";
+                      } else if (item.eventType === "EXERCISE") {
+                        badgeStyles =
+                          "bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950 dark:hover:bg-emerald-900 text-emerald-900 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800";
+                        icon = "✏️";
+                      }
+
+                      return (
+                        <Link
+                          key={item.id}
+                          href={`/module/${item.moduleId}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`block px-1.5 py-0.5 rounded-lg text-[10px] truncate border transition-colors ${badgeStyles}`}
+                          title={`${icon} ${item.title}${item.time ? ` (${item.time})` : ""}${item.location ? ` @ ${item.location}` : ""}`}
+                        >
+                          <span className="mr-0.5">{icon}</span>
+                          {item.moduleCode ? `${item.moduleCode}: ` : ""}
+                          {item.title}
+                        </Link>
+                      );
+                    })}
                   </div>
 
                   <div className="text-[10px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity text-right">
@@ -368,78 +562,130 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
       {/* LIST VIEW (TIMELINE) */}
       {viewMode === "list" && (
         <div className="space-y-4">
-          {exams.length === 0 ? (
+          {filteredItems.length === 0 ? (
             <div className="py-12 text-center text-slate-500">
               <CalendarIcon className="w-10 h-10 text-slate-300 dark:text-slate-700 mx-auto mb-2" />
               <p className="text-xs">{t.examListNoExams}</p>
             </div>
           ) : (
-            exams.map((exam) => {
-              const daysLeft = exam.daysUntilExam;
+            filteredItems.map((item) => {
+              const daysLeft = item.daysUntilExam ?? 0;
               let badgeColor = "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
-              if (daysLeft <= 7) {
-                badgeColor = "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-black animate-pulse";
-              } else if (daysLeft <= 21) {
-                badgeColor = "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold";
+              if (item.eventType === "EXAM") {
+                if (daysLeft <= 7) {
+                  badgeColor = "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-black animate-pulse";
+                } else if (daysLeft <= 21) {
+                  badgeColor = "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold";
+                }
               }
+
+              const mapInfo = item.location ? getCampusMapInfo(item.location) : null;
 
               return (
                 <div
-                  key={exam.id}
+                  key={item.id}
                   className="p-5 rounded-2xl bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm hover:shadow transition-all"
                 >
-                  <div className="space-y-2 flex-1">
+                  <div className="space-y-2 flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`px-2.5 py-1 rounded-xl text-xs ${badgeColor}`}>
-                        {daysLeft === 0 ? t.examToday : t.daysRemaining.replace("{n}", daysLeft.toString())}
-                      </span>
+                      {/* Event Type Badge */}
+                      {item.eventType === "EXAM" && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-200 dark:border-rose-800 flex items-center gap-1">
+                          <Flame className="w-3 h-3 text-rose-500" /> {lang === "de" ? "Klausur" : "Exam"}
+                        </span>
+                      )}
+                      {item.eventType === "TEST" && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-amber-500" /> {lang === "de" ? "Test" : "Test"}
+                        </span>
+                      )}
+                      {item.eventType === "LECTURE" && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-700 dark:bg-sky-950/70 dark:text-sky-300 border border-sky-200 dark:border-sky-800 flex items-center gap-1">
+                          <BookOpen className="w-3 h-3 text-sky-500" /> {lang === "de" ? "Vorlesung" : "Lecture"}
+                        </span>
+                      )}
+                      {item.eventType === "EXERCISE" && (
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                          ✏️ {lang === "de" ? "Übung" : "Exercise"}
+                        </span>
+                      )}
+
+                      {item.eventType === "EXAM" && (
+                        <span className={`px-2.5 py-0.5 rounded-xl text-xs ${badgeColor}`}>
+                          {daysLeft === 0 ? t.examToday : t.daysRemaining.replace("{n}", daysLeft.toString())}
+                        </span>
+                      )}
+
                       <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        {new Date(exam.examDate).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
+                        {new Date(item.date).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
                           weekday: "short",
                           day: "2-digit",
                           month: "long",
                           year: "numeric",
                         })}
                       </span>
-                      {exam.examTime && (
+
+                      {item.time && (
                         <span className="flex items-center gap-1 text-xs text-slate-500">
-                          <Clock className="w-3.5 h-3.5" /> {exam.examTime}
+                          <Clock className="w-3.5 h-3.5" /> {item.time} Uhr
                         </span>
                       )}
-                      {exam.examLocation && (
-                        <span className="flex items-center gap-1 text-xs text-slate-500">
-                          <MapPin className="w-3.5 h-3.5" /> {exam.examLocation}
+
+                      {/* Location with Campus Map link */}
+                      {item.location && mapInfo && (
+                        <span className="flex items-center gap-1 text-xs">
+                          {mapInfo.url ? (
+                            <a
+                              href={mapInfo.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:underline font-semibold"
+                              title={`In ${mapInfo.providerName} öffnen`}
+                            >
+                              <MapPin className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
+                              <span className="truncate max-w-[200px]">{mapInfo.cleanLocation}</span>
+                              <ExternalLink className="w-2.5 h-2.5 text-sky-500" />
+                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 font-bold ml-1">
+                                {mapInfo.badgeLabel}
+                              </span>
+                            </a>
+                          ) : (
+                            <span className="flex items-center gap-1 text-slate-500">
+                              <MapPin className="w-3.5 h-3.5 text-rose-500" /> {item.location}
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>
 
                     <div>
-                      <Link href={`/module/${exam.id}`}>
-                        <h4 className="text-base font-bold text-slate-900 dark:text-white hover:text-indigo-600 transition-colors">
-                          {exam.code ? `${exam.code} – ` : ""}
-                          {exam.name}
+                      <Link href={`/module/${item.moduleId}`}>
+                        <h4 className="text-base font-bold text-slate-900 dark:text-white hover:text-indigo-600 transition-colors truncate">
+                          {item.title}
                         </h4>
                       </Link>
                       <span className="text-xs text-slate-400">
-                        {exam.semesterName} • {exam.ects} ECTS
+                        {item.moduleName} {item.semesterName ? `• ${item.semesterName}` : ""}
                       </span>
                     </div>
 
-                    {exam.examDescription && (
+                    {item.description && (
                       <p className="text-xs text-slate-600 dark:text-slate-300 italic bg-slate-50 dark:bg-slate-800/90 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
-                        📝 {t.examStructureLabel}: {exam.examDescription}
+                        📝 {item.description}
                       </p>
                     )}
                   </div>
 
                   {/* Readiness mini meter & jump button */}
-                  <div className="md:w-64 space-y-3">
-                    <FahrschulBar score={exam.readinessScore} size="sm" />
+                  <div className="md:w-60 space-y-2.5 flex-shrink-0">
+                    {item.readinessScore !== undefined && (
+                      <FahrschulBar score={item.readinessScore} size="sm" />
+                    )}
                     <Link
-                      href={`/module/${exam.id}?tab=trainer`}
+                      href={`/module/${item.moduleId}?tab=trainer`}
                       className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all"
                     >
-                      {t.openTrainer} <ArrowRight className="w-3.5 h-3.5" />
+                      {item.eventType === "EXAM" ? t.openTrainer : "Zum Modul"} <ArrowRight className="w-3.5 h-3.5" />
                     </Link>
                   </div>
                 </div>
@@ -610,7 +856,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
         onClose={() => setIsIcsModalOpen(false)}
         modules={modules}
         onSuccess={() => {
-          fetchExams();
+          fetchCalendarData();
           if (onExamUpdated) onExamUpdated();
         }}
       />
