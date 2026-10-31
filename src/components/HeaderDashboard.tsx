@@ -18,6 +18,8 @@ import {
   LogIn,
   LogOut,
   HelpCircle,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
@@ -60,6 +62,67 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [testStatus, setTestStatus] = useState<{
+    loading: boolean;
+    success?: boolean;
+    message?: string;
+  } | null>(null);
+
+  const handleProviderChange = (newProvider: string) => {
+    setAiProvider(newProvider);
+    setTestStatus(null);
+    const existing = localStorage.getItem(`studyhub_api_key_${newProvider}`);
+    if (existing) {
+      setApiKey(existing);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!apiKey.trim()) {
+      setTestStatus({
+        loading: false,
+        success: false,
+        message: lang === "de" ? "Bitte gib zuerst einen API-Schlüssel ein." : "Please enter an API key first.",
+      });
+      return;
+    }
+
+    setTestStatus({ loading: true });
+    try {
+      const res = await fetch("/api/ai/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: aiProvider,
+          apiKey: apiKey.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setTestStatus({
+          loading: false,
+          success: true,
+          message: data.message || "Verbindung erfolgreich!",
+        });
+        localStorage.setItem("studyhub_ai_status", "connected");
+        localStorage.setItem(`studyhub_api_key_${aiProvider}`, apiKey.trim());
+      } else {
+        setTestStatus({
+          loading: false,
+          success: false,
+          message: data.error || "Verbindung fehlgeschlagen.",
+        });
+        localStorage.removeItem("studyhub_ai_status");
+      }
+    } catch (err: any) {
+      setTestStatus({
+        loading: false,
+        success: false,
+        message: err.message || "Netzwerkfehler beim Verbindungstest.",
+      });
+    }
+  };
 
   const fetchCurrentUser = async () => {
     try {
@@ -129,6 +192,9 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     localStorage.setItem("studyhub_target_ects", targetEcts.toString());
     localStorage.setItem("studyhub_ai_provider", aiProvider);
     localStorage.setItem("studyhub_api_key", apiKey);
+    if (apiKey) {
+      localStorage.setItem(`studyhub_api_key_${aiProvider}`, apiKey);
+    }
     localStorage.setItem("studyhub_daily_goal", defaultDailyGoal.toString());
     localStorage.setItem("studyhub_session_size", defaultSessionSize.toString());
     setShowSettings(false);
@@ -483,7 +549,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                       name="provider"
                       value="gemini"
                       checked={aiProvider === "gemini"}
-                      onChange={(e) => setAiProvider(e.target.value)}
+                      onChange={(e) => handleProviderChange(e.target.value)}
                       className="text-indigo-600 focus:ring-indigo-500"
                     />
                     <div className="flex-1">
@@ -507,7 +573,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                       name="provider"
                       value="local"
                       checked={aiProvider === "local"}
-                      onChange={(e) => setAiProvider(e.target.value)}
+                      onChange={(e) => handleProviderChange(e.target.value)}
                       className="text-indigo-600"
                     />
                     <div>
@@ -529,12 +595,12 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                       name="provider"
                       value="openai"
                       checked={aiProvider === "openai"}
-                      onChange={(e) => setAiProvider(e.target.value)}
+                      onChange={(e) => handleProviderChange(e.target.value)}
                       className="text-indigo-600"
                     />
                     <div>
                       <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        OpenAI (gpt-4o) Cloud
+                        OpenAI (gpt-4o &amp; gpt-4o-mini) Cloud
                       </div>
                       <p className="text-[11px] text-slate-500">
                         {t.settingsOpenAiDesc}
@@ -548,12 +614,12 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                       name="provider"
                       value="anthropic"
                       checked={aiProvider === "anthropic"}
-                      onChange={(e) => setAiProvider(e.target.value)}
+                      onChange={(e) => handleProviderChange(e.target.value)}
                       className="text-indigo-600"
                     />
                     <div>
                       <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        Anthropic (claude-3-5-sonnet) Cloud
+                        Anthropic (claude-3-5-sonnet &amp; haiku) Cloud
                       </div>
                       <p className="text-[11px] text-slate-500">
                         {t.settingsAnthropicDesc}
@@ -563,7 +629,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                 </div>
 
                 {aiProvider !== "local" && (
-                  <div className="mt-3">
+                  <div className="mt-3 space-y-2">
                     <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
                       <span className="flex items-center gap-1">
                         <KeyRound className="w-3.5 h-3.5" /> API-Key ({aiProvider === "gemini" ? "Google Gemini AI Studio" : aiProvider.toUpperCase()})
@@ -578,14 +644,71 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                           {lang === "de" ? "Key kostenlos holen ↗" : "Get free key ↗"}
                         </a>
                       )}
+                      {aiProvider === "openai" && (
+                        <a
+                          href="https://platform.openai.com/api-keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                        >
+                          platform.openai.com ↗
+                        </a>
+                      )}
+                      {aiProvider === "anthropic" && (
+                        <a
+                          href="https://console.anthropic.com/settings/keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                        >
+                          console.anthropic.com ↗
+                        </a>
+                      )}
                     </label>
+
                     <input
                       type="password"
                       placeholder={aiProvider === "gemini" ? "AIzaSy..." : "sk-..."}
                       value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      onChange={(e) => {
+                        setApiKey(e.target.value);
+                        setTestStatus(null);
+                      }}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
                     />
+
+                    <div className="flex items-center gap-2 pt-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={handleTestConnection}
+                        disabled={testStatus?.loading}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${testStatus?.loading ? "animate-spin text-indigo-600" : ""}`} />
+                        {testStatus?.loading ? (lang === "de" ? "Prüfe..." : "Testing...") : (lang === "de" ? "Verbindung testen" : "Test Connection")}
+                      </button>
+                      <span className="text-[10px] text-slate-400">
+                        {lang === "de" ? "Testet den API-Key mit einer Live-Anfrage" : "Tests API key with a live ping"}
+                      </span>
+                    </div>
+
+                    {testStatus && !testStatus.loading && (
+                      <div
+                        className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs animate-in fade-in duration-150 ${
+                          testStatus.success
+                            ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200"
+                            : "bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200"
+                        }`}
+                      >
+                        {testStatus.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
+                        )}
+                        <span className="leading-snug">{testStatus.message}</span>
+                      </div>
+                    )}
+
                     <p className="text-[10px] text-slate-400 mt-1">
                       {aiProvider === "gemini"
                         ? (lang === "de"
