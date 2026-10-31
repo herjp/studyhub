@@ -6,12 +6,20 @@ import { getCurrentUser } from "@/lib/auth";
 export async function GET(req: Request) {
   try {
     const user = await getCurrentUser();
+
+    // Strict user isolation: If not logged in, return empty array
+    if (!user) {
+      return NextResponse.json([]);
+    }
+
     const { searchParams } = new URL(req.url);
     const semesterId = searchParams.get("semesterId");
 
-    const whereClause: any = semesterId ? { semesterId } : {};
-    if (user) {
-      whereClause.semester = { userId: user.id };
+    const whereClause: any = {
+      semester: { userId: user.id },
+    };
+    if (semesterId) {
+      whereClause.semesterId = semesterId;
     }
 
     const modules = await prisma.module.findMany({
@@ -97,13 +105,33 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: "Bitte melde dich an, um ein Modul anzulegen." },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
-    const { semesterId, name, code, ects, examDate, examTime, examLocation, examDescription, status } = body;
+    const { semesterId, name, code, ects, examDate, examTime, examLocation, examDescription, status, dailyGoal } = body;
 
     if (!semesterId || !name || ects === undefined) {
       return NextResponse.json(
         { error: "Semester, Name und ECTS sind Pflichtfelder" },
         { status: 400 }
+      );
+    }
+
+    // Verify semester belongs to this user
+    const targetSemester = await prisma.semester.findUnique({
+      where: { id: semesterId },
+    });
+
+    if (!targetSemester || targetSemester.userId !== user.id) {
+      return NextResponse.json(
+        { error: "Semester nicht gefunden oder nicht autorisiert" },
+        { status: 403 }
       );
     }
 
@@ -118,6 +146,7 @@ export async function POST(req: Request) {
         examLocation: examLocation || null,
         examDescription: examDescription || null,
         status: (status as ModuleStatus) || ModuleStatus.IN_PROGRESS,
+        dailyGoal: dailyGoal ? Number(dailyGoal) : 3,
       },
     });
 

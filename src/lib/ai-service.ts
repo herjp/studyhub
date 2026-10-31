@@ -441,3 +441,73 @@ ${contextSnippet || "Erstelle anspruchsvolle Universitätsfragen zum Themenberei
 
   return [];
 }
+
+/**
+ * Extracts and transcribes lecture documents (PDF, PNG, JPEG) using Gemini multimodal understanding.
+ */
+export async function extractDocumentWithGemini(params: {
+  fileBase64: string;
+  mimeType: string;
+  title: string;
+  apiKey?: string;
+  provider?: string;
+}): Promise<string | null> {
+  const { fileBase64, mimeType, title, apiKey, provider = "gemini" } = params;
+  const isGemini = provider === "gemini" || (Boolean(apiKey) && apiKey!.startsWith("AIzaSy"));
+  const activeGeminiKey = (isGemini && apiKey) ? apiKey : process.env.GEMINI_API_KEY;
+
+  if (!activeGeminiKey) return null;
+
+  const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"];
+  const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, "");
+
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${activeGeminiKey}`;
+      const payload = {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: cleanBase64,
+                },
+              },
+              {
+                text: `Du bist ein erfahrener Hochschuldozent und KI-Studienassistent. Analysiere dieses hochgeladene Dokument (Folie, Vorlesungsskript, Altklausur oder Mitschrift) mit dem Titel "${title}".
+Extrahiere den gesamten Text, alle Definitionen, Theoreme, Formeln, Diagrammbeschreibungen und Klausurschwerpunkte.
+Strukturiere die Inhalte klar in Markdown mit prägnanten Überschriften und Aufzählungspunkten, damit sie optimal von der RAG-Engine indiziert und für Prüfungsfragen genutzt werden können.`,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2,
+        },
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        console.warn(`Gemini document extraction (${model}) failed with status: ${res.status}`);
+        continue;
+      }
+
+      const json = await res.json();
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text && text.trim().length > 0) {
+        return text.trim();
+      }
+    } catch (e: any) {
+      console.warn(`Gemini model ${model} error during extraction:`, e.message);
+    }
+  }
+
+  return null;
+}

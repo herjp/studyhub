@@ -57,6 +57,7 @@ model Module {
   examDescription String?
   status          ModuleStatus  @default(IN_PROGRESS)
   grade       Float?
+  dailyGoal   Int           @default(5)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   semester    Semester      @relation(fields: [semesterId], references: [id], onDelete: Cascade)

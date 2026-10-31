@@ -6,13 +6,13 @@ export async function GET() {
   try {
     const user = await getCurrentUser();
 
-    // If logged in, fetch this user's semesters; if no user, return default/unassigned or demo
-    const whereClause = user
-      ? { userId: user.id }
-      : {};
+    // Strict user isolation: If not logged in, return empty array so no private user data is ever exposed
+    if (!user) {
+      return NextResponse.json([]);
+    }
 
     const semesters = await prisma.semester.findMany({
-      where: whereClause,
+      where: { userId: user.id },
       orderBy: { order: "asc" },
       include: {
         modules: {
@@ -35,6 +35,13 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: "Bitte melde dich an, um ein Semester anzulegen." },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
     const { name, startDate, endDate, isActive } = body;
 
@@ -42,9 +49,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Name ist erforderlich" }, { status: 400 });
     }
 
-    // Get max order
+    // Get max order for this user
     const lastSemester = await prisma.semester.findFirst({
-      where: user ? { userId: user.id } : undefined,
+      where: { userId: user.id },
       orderBy: { order: "desc" },
     });
     const order = (lastSemester?.order ?? 0) + 1;
@@ -52,19 +59,19 @@ export async function POST(req: Request) {
     // If marked active, set other semesters to isActive: false
     if (isActive) {
       await prisma.semester.updateMany({
-        where: user ? { userId: user.id, isActive: true } : { isActive: true },
+        where: { userId: user.id, isActive: true },
         data: { isActive: false },
       });
     }
 
     const newSemester = await prisma.semester.create({
       data: {
-        userId: user?.id || null,
-        name,
-        startDate: startDate ? new Date(startDate) : null,
-        endDate: endDate ? new Date(endDate) : null,
-        isActive: Boolean(isActive),
+        name: name.trim(),
+        startDate: startDate ? new Date(startDate) : new Date(),
+        endDate: endDate ? new Date(endDate) : new Date(),
+        isActive: isActive ?? true,
         order,
+        userId: user.id,
       },
     });
 

@@ -50,6 +50,8 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
   });
   const [targetEcts, setTargetEcts] = useState<number>(180);
   const [showSettings, setShowSettings] = useState(false);
+  const [defaultDailyGoal, setDefaultDailyGoal] = useState<number>(5);
+  const [defaultSessionSize, setDefaultSessionSize] = useState<number>(5);
   const [aiProvider, setAiProvider] = useState<string>("local");
   const [apiKey, setApiKey] = useState<string>("");
   const [isResetting, setIsResetting] = useState(false);
@@ -107,6 +109,12 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     const storedKey = localStorage.getItem("studyhub_api_key");
     if (storedKey) setApiKey(storedKey);
 
+    const storedGoal = localStorage.getItem("studyhub_daily_goal");
+    if (storedGoal) setDefaultDailyGoal(Number(storedGoal));
+
+    const storedSession = localStorage.getItem("studyhub_session_size");
+    if (storedSession) setDefaultSessionSize(Number(storedSession));
+
     const isDark = document.documentElement.classList.contains("dark");
     setDarkMode(isDark);
 
@@ -121,6 +129,8 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     localStorage.setItem("studyhub_target_ects", targetEcts.toString());
     localStorage.setItem("studyhub_ai_provider", aiProvider);
     localStorage.setItem("studyhub_api_key", apiKey);
+    localStorage.setItem("studyhub_daily_goal", defaultDailyGoal.toString());
+    localStorage.setItem("studyhub_session_size", defaultSessionSize.toString());
     setShowSettings(false);
   };
 
@@ -408,6 +418,55 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                     className="w-24 px-2.5 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
                   />
                   <span className="text-xs text-slate-500">ECTS</span>
+                </div>
+              </div>
+
+              {/* Daily Learning Goal & Session Length Settings */}
+              <div className="space-y-3.5 pt-1">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2 flex items-center justify-between">
+                    <span>{lang === "de" ? "Tägliches Lernziel (Fragen pro Tag)" : "Daily Goal (Questions / Day)"}</span>
+                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">{defaultDailyGoal} {lang === "de" ? "Fragen/Tag" : "Qs/day"}</span>
+                  </label>
+                  <div className="grid grid-cols-5 gap-2">
+                    {[3, 5, 10, 15, 20].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setDefaultDailyGoal(num)}
+                        className={`py-2 text-xs font-bold rounded-xl border transition-all text-center ${
+                          defaultDailyGoal === num
+                            ? "bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300 shadow-sm"
+                            : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2 flex items-center justify-between">
+                    <span>{lang === "de" ? "Fragen pro Trainingssession" : "Questions per Training Session"}</span>
+                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">{defaultSessionSize} {lang === "de" ? "Fragen" : "Qs"}</span>
+                  </label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[5, 10, 15, 20].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setDefaultSessionSize(num)}
+                        className={`py-2 text-xs font-bold rounded-xl border transition-all text-center ${
+                          defaultSessionSize === num
+                            ? "bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300 shadow-sm"
+                            : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                        }`}
+                      >
+                        {num} {lang === "de" ? "Fragen" : "Qs"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 

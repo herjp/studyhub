@@ -28,6 +28,8 @@ import {
   Check,
   Edit2,
   MapPin,
+  UploadCloud,
+  Gauge,
 } from "lucide-react";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
 import { FahrschulBar } from "@/components/FahrschulBar";
@@ -61,6 +63,46 @@ function ModuleDetailContent() {
   const [docText, setDocText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<any>(null);
+  const [uploadedFile, setUploadedFile] = useState<{
+    file: File;
+    name: string;
+    sizeStr: string;
+    base64: string;
+    mimeType: string;
+  } | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Session Question Count (default from localStorage or 5)
+  const [sessionQuestionCount, setSessionQuestionCount] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("studyhub_session_size");
+      return stored ? Number(stored) : 5;
+    }
+    return 5;
+  });
+
+  const handleFileSelected = (file: File) => {
+    if (!docTitle) {
+      const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+      setDocTitle(cleanName);
+    }
+
+    const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+    const sizeStr = file.size > 1024 * 1024 ? `${sizeMB} MB` : `${Math.round(file.size / 1024)} KB`;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target?.result as string;
+      setUploadedFile({
+        file,
+        name: file.name,
+        sizeStr,
+        base64,
+        mimeType: file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg"),
+      });
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Trainer & Quiz Modal States
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
@@ -140,6 +182,9 @@ function ModuleDetailContent() {
 
     setIsUploading(true);
     try {
+      const storedKey = typeof window !== "undefined" ? localStorage.getItem("studyhub_api_key") || undefined : undefined;
+      const storedProvider = typeof window !== "undefined" ? localStorage.getItem("studyhub_ai_provider") || "gemini" : "gemini";
+
       const res = await fetch("/api/documents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,13 +193,19 @@ function ModuleDetailContent() {
           title: docTitle.trim(),
           category: isPastExam ? "EXAM_PAST" : docCategory,
           isPastExam,
+          fileName: uploadedFile?.name,
+          fileBase64: uploadedFile?.base64,
+          mimeType: uploadedFile?.mimeType,
           textContent: docText.trim() || undefined,
+          apiKey: storedKey,
+          provider: storedProvider,
         }),
       });
 
       if (res.ok) {
         setDocTitle("");
         setDocText("");
+        setUploadedFile(null);
         setIsPastExam(false);
         fetchModule();
       }
@@ -199,8 +250,7 @@ function ModuleDetailContent() {
       modeLabel = "Freitext-Klausurtraining mit KI-Korrektur";
     } else if (mode === "SIMULATION") {
       modeLabel = "Klausursimulation (Realistischer Mix)";
-      // Shuffle
-      filtered = [...filtered].sort(() => Math.random() - 0.5).slice(0, 8);
+      filtered = [...filtered].sort(() => Math.random() - 0.5);
     }
 
     if (filtered.length === 0) {
@@ -208,8 +258,13 @@ function ModuleDetailContent() {
       return;
     }
 
+    // Apply chosen session question count (e.g. 5, 10, 15, 20 or all)
+    if (sessionQuestionCount > 0 && filtered.length > sessionQuestionCount) {
+      filtered = [...filtered].sort(() => Math.random() - 0.5).slice(0, sessionQuestionCount);
+    }
+
     setQuizQuestions(filtered);
-    setQuizModeName(modeLabel);
+    setQuizModeName(`${modeLabel} (${filtered.length} ${filtered.length === 1 ? "Frage" : "Fragen"})`);
     setIsQuizOpen(true);
   };
 
@@ -604,10 +659,79 @@ function ModuleDetailContent() {
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      {t.docTextContentLabel}
+                      {lang === "de" ? "Datei hochladen (PDF, PNG, JPEG)" : "Upload File (PDF, PNG, JPEG)"}
+                    </label>
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) handleFileSelected(file);
+                      }}
+                      className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${
+                        uploadedFile
+                          ? "border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30"
+                          : "border-indigo-200 dark:border-indigo-900/60 hover:border-indigo-500 bg-indigo-50/20 dark:bg-indigo-950/20"
+                      }`}
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileSelected(file);
+                        }}
+                        className="hidden"
+                      />
+
+                      {uploadedFile ? (
+                        <div className="flex items-center justify-between gap-2 text-left">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
+                              <FileCheck className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                {uploadedFile.name}
+                              </p>
+                              <p className="text-[10px] text-slate-500">
+                                {uploadedFile.sizeStr} • {uploadedFile.mimeType.includes("pdf") ? "PDF Dokument" : "Folie / Bild"}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setUploadedFile(null);
+                            }}
+                            className="text-xs font-bold text-slate-400 hover:text-rose-500 p-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <UploadCloud className="w-6 h-6 text-indigo-500 mx-auto mb-1.5" />
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                            {lang === "de" ? "PDF oder Folien (PNG, JPG) ablegen" : "Drop PDF or slides here"}
+                          </p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            {lang === "de" ? "Automatische Texterkennung & Indizierung durch KI" : "Auto text recognition & AI indexing"}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      {lang === "de" ? "Zusätzliche Notizen oder Text (optional)" : "Additional Notes or Text (optional)"}
                     </label>
                     <textarea
-                      rows={3}
+                      rows={2}
                       placeholder={t.docTextContentPlaceholder}
                       value={docText}
                       onChange={(e) => setDocText(e.target.value)}
@@ -963,6 +1087,55 @@ function ModuleDetailContent() {
                     ? (lang === "de" ? "Generiere Fragen mit Gemini..." : "Generating with Gemini...")
                     : (lang === "de" ? "Mit KI neue Fragen generieren" : "Generate Questions with AI")}
                 </button>
+              </div>
+
+              {/* Session Question Count Selector */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <Gauge className="w-3.5 h-3.5 text-indigo-500" />
+                    {lang === "de" ? "Fragen pro Trainingsrunde (Session-Länge):" : "Questions per Training Session:"}
+                  </span>
+                  <span className="text-[11px] text-slate-500 block">
+                    {lang === "de"
+                      ? `Ausgewählt: ${sessionQuestionCount > 0 ? `${sessionQuestionCount} Fragen` : "Alle Fragen"} pro Durchlauf`
+                      : `Selected: ${sessionQuestionCount > 0 ? `${sessionQuestionCount} questions` : "All questions"} per round`}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {[5, 10, 15, 20].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      onClick={() => {
+                        setSessionQuestionCount(count);
+                        localStorage.setItem("studyhub_session_size", count.toString());
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        sessionQuestionCount === count
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-400"
+                      }`}
+                    >
+                      {count} {lang === "de" ? "Fragen" : "Qs"}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSessionQuestionCount(0);
+                      localStorage.setItem("studyhub_session_size", "0");
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      sessionQuestionCount === 0
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-400"
+                    }`}
+                  >
+                    {lang === "de" ? `Alle (${moduleData.questions?.length ?? 0})` : `All (${moduleData.questions?.length ?? 0})`}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">

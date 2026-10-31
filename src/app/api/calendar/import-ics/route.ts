@@ -5,6 +5,13 @@ import { getCurrentUser } from "@/lib/auth";
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: "Bitte melde dich an, um Kalendertermine zu importieren." },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
     const { events } = body;
 
@@ -16,13 +23,13 @@ export async function POST(req: Request) {
     let targetSemester = await prisma.semester.findFirst({
       where: {
         isActive: true,
-        ...(user ? { userId: user.id } : {}),
+        userId: user.id,
       },
     });
 
     if (!targetSemester) {
       targetSemester = await prisma.semester.findFirst({
-        where: user ? { userId: user.id } : {},
+        where: { userId: user.id },
         orderBy: { order: "asc" },
       });
     }
@@ -36,17 +43,24 @@ export async function POST(req: Request) {
       const examDate = new Date(ev.dateStr);
 
       if (ev.target && ev.target !== "create_new") {
-        // Link to existing module
-        await prisma.module.update({
+        // Link to existing module - check ownership
+        const mod = await prisma.module.findUnique({
           where: { id: ev.target },
-          data: {
-            examDate,
-            examTime: ev.timeStr || null,
-            examLocation: ev.location || null,
-            examDescription: ev.description || undefined,
-          },
+          include: { semester: true },
         });
-        updatedCount++;
+
+        if (mod && mod.semester.userId === user.id) {
+          await prisma.module.update({
+            where: { id: ev.target },
+            data: {
+              examDate,
+              examTime: ev.timeStr || null,
+              examLocation: ev.location || null,
+              examDescription: ev.description || undefined,
+            },
+          });
+          updatedCount++;
+        }
       } else if (ev.target === "create_new" && targetSemester) {
         // Create new module
         await prisma.module.create({

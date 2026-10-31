@@ -5,12 +5,14 @@ import { getCurrentUser } from "@/lib/auth";
 export async function GET() {
   try {
     const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json([]);
+    }
+
     const whereClause: any = {
       examDate: { not: null },
+      semester: { userId: user.id },
     };
-    if (user) {
-      whereClause.semester = { userId: user.id };
-    }
 
     const modulesWithExams = await prisma.module.findMany({
       where: whereClause,
@@ -67,6 +69,11 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Nicht autorisiert" }, { status: 401 });
+    }
+
     const body = await req.json();
     const {
       moduleId,
@@ -86,6 +93,7 @@ export async function POST(req: Request) {
     // If no explicit moduleId provided, perform automatic fuzzy match against module names and codes!
     if (!targetModuleId && moduleQuery) {
       const allModules = await prisma.module.findMany({
+        where: { semester: { userId: user.id } },
         include: { semester: true },
       });
 
@@ -108,6 +116,16 @@ export async function POST(req: Request) {
         { error: "Kein passendes Modul gefunden. Bitte wähle das Modul aus der Liste." },
         { status: 404 }
       );
+    }
+
+    // Verify ownership
+    const targetModule = await prisma.module.findUnique({
+      where: { id: targetModuleId },
+      include: { semester: true },
+    });
+
+    if (!targetModule || targetModule.semester.userId !== user.id) {
+      return NextResponse.json({ error: "Nicht autorisiert" }, { status: 403 });
     }
 
     const updated = await prisma.module.update({

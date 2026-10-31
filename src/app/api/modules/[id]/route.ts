@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(
   req: Request,
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Nicht autorisiert" }, { status: 401 });
+    }
+
     const moduleId = params.id;
 
     const mod = await prisma.module.findUnique({
@@ -31,7 +37,7 @@ export async function GET(
       },
     });
 
-    if (!mod) {
+    if (!mod || mod.semester.userId !== user.id) {
       return NextResponse.json({ error: "Modul nicht gefunden" }, { status: 404 });
     }
 
@@ -65,11 +71,9 @@ export async function GET(
     });
 
     // Daily Goal
-    let dailyGoal = 0;
-    if (daysUntilExam && daysUntilExam > 0) {
+    let dailyGoal = mod.dailyGoal || 5;
+    if (!mod.dailyGoal && daysUntilExam && daysUntilExam > 0) {
       dailyGoal = Math.max(1, Math.ceil(dueQuestions.length / daysUntilExam));
-    } else {
-      dailyGoal = Math.min(dueQuestions.length, 5);
     }
 
     // Today's answered questions
@@ -104,7 +108,23 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Nicht autorisiert" }, { status: 401 });
+    }
+
     const moduleId = params.id;
+
+    // Verify ownership
+    const existing = await prisma.module.findUnique({
+      where: { id: moduleId },
+      include: { semester: true },
+    });
+
+    if (!existing || existing.semester.userId !== user.id) {
+      return NextResponse.json({ error: "Modul nicht gefunden" }, { status: 404 });
+    }
+
     const body = await req.json();
     const {
       name,
@@ -116,6 +136,7 @@ export async function PATCH(
       examDescription,
       status,
       grade,
+      dailyGoal,
     } = body;
 
     const dataToUpdate: any = {};
@@ -128,6 +149,7 @@ export async function PATCH(
     if (examDescription !== undefined) dataToUpdate.examDescription = examDescription || null;
     if (status !== undefined) dataToUpdate.status = status;
     if (grade !== undefined) dataToUpdate.grade = grade !== null && grade !== "" ? Number(grade) : null;
+    if (dailyGoal !== undefined) dataToUpdate.dailyGoal = Math.max(1, Number(dailyGoal));
 
     const updated = await prisma.module.update({
       where: { id: moduleId },
@@ -147,7 +169,23 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Nicht autorisiert" }, { status: 401 });
+    }
+
     const moduleId = params.id;
+
+    // Verify ownership
+    const existing = await prisma.module.findUnique({
+      where: { id: moduleId },
+      include: { semester: true },
+    });
+
+    if (!existing || existing.semester.userId !== user.id) {
+      return NextResponse.json({ error: "Modul nicht gefunden" }, { status: 404 });
+    }
+
     await prisma.module.delete({
       where: { id: moduleId },
     });

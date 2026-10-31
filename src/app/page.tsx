@@ -11,11 +11,14 @@ import {
   Sparkles,
   ArrowRight,
   Filter,
+  User,
+  ShieldCheck,
 } from "lucide-react";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
 import { SemesterTabs, SemesterType } from "@/components/SemesterTabs";
 import { ModuleCard, ModuleData } from "@/components/ModuleCard";
 import { AddModuleDialog } from "@/components/AddModuleDialog";
+import { AuthModal } from "@/components/AuthModal";
 import { useLanguage } from "@/lib/i18n";
 
 export default function HomePage() {
@@ -27,6 +30,23 @@ export default function HomePage() {
   const [modulesLoading, setModulesLoading] = useState(false);
   const [isAddModuleOpen, setIsAddModuleOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"ALL" | "IN_PROGRESS" | "COMPLETED">("ALL");
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isLoggingInDemo, setIsLoggingInDemo] = useState(false);
+
+  const fetchCurrentUser = async () => {
+    try {
+      const res = await fetch("/api/auth/me");
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentUser(data.user);
+      } else {
+        setCurrentUser(null);
+      }
+    } catch {
+      setCurrentUser(null);
+    }
+  };
 
   // Fetch Semesters
   const fetchSemesters = async () => {
@@ -70,7 +90,23 @@ export default function HomePage() {
     }
   };
 
+  const handleDemoLogin = async () => {
+    setIsLoggingInDemo(true);
+    try {
+      const res = await fetch("/api/auth/demo", { method: "POST" });
+      if (res.ok) {
+        await fetchCurrentUser();
+        await fetchSemesters();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoggingInDemo(false);
+    }
+  };
+
   useEffect(() => {
+    fetchCurrentUser();
     fetchSemesters();
   }, []);
 
@@ -96,12 +132,51 @@ export default function HomePage() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col pb-16 transition-colors">
       <HeaderDashboard
         onStatsUpdated={() => {
+          fetchCurrentUser();
           fetchSemesters();
           if (selectedSemesterId) fetchModules(selectedSemesterId);
         }}
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 w-full flex-1 space-y-8">
+        {/* Guest / Visitor Welcome Banner */}
+        {!loading && !currentUser && (
+          <section className="bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-700 rounded-3xl p-6 sm:p-8 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 border border-indigo-400/20">
+            <div className="space-y-2 text-center md:text-left">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-sm text-xs font-semibold">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                {lang === "de" ? "Willkommen bei StudyHub" : "Welcome to StudyHub"}
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight">
+                {lang === "de" ? "Dein persönlicher KI-Klausur- & Studienassistent" : "Your personal AI exam & study trainer"}
+              </h2>
+              <p className="text-xs sm:text-sm text-indigo-100 max-w-xl">
+                {lang === "de"
+                  ? "Erstelle Semester und Module, lade Folien als PDF oder Bild hoch und lerne mit KI-generierten Klausurfragen. Deine Daten werden geschützt in deinem Account verwaltet."
+                  : "Organize semesters and courses, upload slides as PDF or images, and practice with AI-generated exam questions. Your data is strictly private."}
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowAuthModal(true)}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <User className="w-4 h-4" />
+                {lang === "de" ? "Registrieren / Login" : "Sign Up / Log In"}
+              </button>
+              <button
+                type="button"
+                onClick={handleDemoLogin}
+                disabled={isLoggingInDemo}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                {isLoggingInDemo ? "Lädt..." : (lang === "de" ? "1-Klick Demo-Account" : "1-Click Demo Account")}
+              </button>
+            </div>
+          </section>
+        )}
         {/* Semester Navigation Bar */}
         <section className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md rounded-3xl p-6 border border-slate-200/90 dark:border-slate-800 shadow-sm">
           <SemesterTabs
@@ -244,6 +319,23 @@ export default function HomePage() {
           onClose={() => setIsAddModuleOpen(false)}
           onModuleAdded={() => {
             fetchModules(selectedSemesterId);
+            fetchSemesters();
+          }}
+        />
+      )}
+
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          currentUser={currentUser}
+          onLogout={() => {
+            setCurrentUser(null);
+            fetchSemesters();
+          }}
+          onSuccess={(user) => {
+            setCurrentUser(user);
             fetchSemesters();
           }}
         />

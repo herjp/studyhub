@@ -42,6 +42,7 @@ export function EditModuleDialog({
   const [examDescription, setExamDescription] = useState("");
   const [status, setStatus] = useState<string>("IN_PROGRESS");
   const [grade, setGrade] = useState<string>("");
+  const [dailyGoal, setDailyGoal] = useState<string>("3");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -59,6 +60,7 @@ export function EditModuleDialog({
       setExamDescription(module.examDescription || "");
       setStatus(module.status || "IN_PROGRESS");
       setGrade(module.grade ? module.grade.toString() : "");
+      setDailyGoal(module.dailyGoal ? module.dailyGoal.toString() : "3");
       setShowConfirmDelete(false);
       setError(null);
     }
@@ -90,6 +92,7 @@ export function EditModuleDialog({
           examDescription: examDescription || null,
           status,
           grade: grade ? parseFloat(grade) : null,
+          dailyGoal: parseInt(dailyGoal, 10) || 3,
         }),
       });
 
@@ -276,6 +279,42 @@ export function EditModuleDialog({
                     value={grade}
                     onChange={(e) => setGrade(e.target.value)}
                     className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              {/* Daily Question Goal */}
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    {lang === "de" ? "Tägliches Lernziel (Fragen pro Tag)" : "Daily Goal (Questions per Day)"}
+                  </span>
+                  <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                    {dailyGoal} {lang === "de" ? "Fragen/Tag" : "Qs/day"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {[3, 5, 10, 15, 20].map((num) => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setDailyGoal(num.toString())}
+                      className={`flex-1 py-1.5 text-xs font-bold rounded-xl border transition-all ${
+                        dailyGoal === num.toString()
+                          ? "border-indigo-600 bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 shadow-sm"
+                          : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300"
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={dailyGoal}
+                    onChange={(e) => setDailyGoal(e.target.value)}
+                    className="w-14 px-2 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-center font-bold"
                   />
                 </div>
               </div>

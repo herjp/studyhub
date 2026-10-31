@@ -5,10 +5,20 @@ import { getCurrentUser } from "@/lib/auth";
 export async function GET() {
   try {
     const user = await getCurrentUser();
-    const whereClause = user ? { semester: { userId: user.id } } : {};
+    if (!user) {
+      return NextResponse.json({
+        completedEcts: 0,
+        plannedEcts: 0,
+        gpa: null,
+        gradedEctsSum: 0,
+        totalQuestions: 0,
+        answeredCount: 0,
+        moduleCount: 0,
+      });
+    }
 
     const modules = await prisma.module.findMany({
-      where: whereClause,
+      where: { semester: { userId: user.id } },
       include: {
         semester: true,
       },
