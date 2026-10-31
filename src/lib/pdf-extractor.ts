@@ -104,7 +104,7 @@ export async function extractPdfTextWithPdfJs(input: File | ArrayBuffer): Promis
  */
 export async function renderPdfToCompressedJpeg(
   input: File | ArrayBuffer,
-  maxPages: number = 2
+  maxPages: number = 4
 ): Promise<{ base64: string; mimeType: string; sizeStr: string } | null> {
   if (typeof window === "undefined") return null;
 

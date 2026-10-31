@@ -82,7 +82,7 @@ export async function POST(req: Request) {
         try {
           const aiResult = await extractDocumentWithAI({
             fileBase64: cleanBase64,
-            mimeType: isImage ? effectiveMime : "image/jpeg",
+            mimeType: effectiveMime,
             fileName: fileName || `${trimmedTitle}.pdf`,
             title: trimmedTitle,
             apiKey: activeKey,

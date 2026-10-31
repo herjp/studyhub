@@ -900,6 +900,8 @@ export async function extractDocumentWithAI(params: {
   provider?: string;
 }): Promise<string> {
   const { fileBase64, mimeType, fileName, title, apiKey, provider = "gemini" } = params;
+  const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, "");
+  const effectiveMime = mimeType || "image/jpeg";
   const docLabel = fileName || title || "Vorlesungsdokument";
   const prompt = `Analysiere dieses Dokument / diese Vorlesungsfolie / handschriftliche Notiz ("${docLabel}") für einen Universitäts-Klausurtrainer.
 Extrahiere präzise:
@@ -918,7 +920,7 @@ Formatiere das Ergebnis in klarem Text/Markdown.`;
             "Content-Type": "application/json",
             Authorization: `Bearer ${openAiKey}`,
           },
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(15000),
           body: JSON.stringify({
             model: "gpt-4o-mini",
             messages: [
@@ -929,14 +931,14 @@ Formatiere das Ergebnis in klarem Text/Markdown.`;
                   {
                     type: "image_url",
                     image_url: {
-                      url: `data:${mimeType};base64,${fileBase64}`,
+                      url: `data:${effectiveMime};base64,${cleanBase64}`,
                       detail: "high",
                     },
                   },
                 ],
               },
             ],
-            max_tokens: 1500,
+            max_tokens: 2500,
           }),
         });
 
@@ -965,10 +967,10 @@ Formatiere das Ergebnis in klarem Text/Markdown.`;
             "x-api-key": antKey,
             "anthropic-version": "2023-06-01",
           },
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(15000),
           body: JSON.stringify({
             model: "claude-3-5-haiku-20241022",
-            max_tokens: 1500,
+            max_tokens: 2500,
             messages: [
               {
                 role: "user",
@@ -977,8 +979,8 @@ Formatiere das Ergebnis in klarem Text/Markdown.`;
                     type: "image",
                     source: {
                       type: "base64",
-                      media_type: mimeType,
-                      data: fileBase64,
+                      media_type: effectiveMime,
+                      data: cleanBase64,
                     },
                   },
                   { type: "text", text: prompt },
@@ -1014,7 +1016,7 @@ Formatiere das Ergebnis in klarem Text/Markdown.`;
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(20000),
           body: JSON.stringify({
             contents: [
               {
@@ -1022,9 +1024,9 @@ Formatiere das Ergebnis in klarem Text/Markdown.`;
                 parts: [
                   { text: prompt },
                   {
-                    inline_data: {
-                      mime_type: mimeType,
-                      data: fileBase64,
+                    inlineData: {
+                      mimeType: effectiveMime,
+                      data: cleanBase64,
                     },
                   },
                 ],
