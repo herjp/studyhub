@@ -55,7 +55,11 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
   const [defaultDailyGoal, setDefaultDailyGoal] = useState<number>(5);
   const [defaultSessionSize, setDefaultSessionSize] = useState<number>(5);
   const [aiProvider, setAiProvider] = useState<string>("local");
-  const [apiKey, setApiKey] = useState<string>("");
+  const [providerKeys, setProviderKeys] = useState<{ [key: string]: string }>({
+    gemini: "",
+    openai: "",
+    anthropic: "",
+  });
   const [isResetting, setIsResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -71,14 +75,11 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
   const handleProviderChange = (newProvider: string) => {
     setAiProvider(newProvider);
     setTestStatus(null);
-    const existing = localStorage.getItem(`studyhub_api_key_${newProvider}`);
-    if (existing) {
-      setApiKey(existing);
-    }
   };
 
   const handleTestConnection = async () => {
-    if (!apiKey.trim()) {
+    const activeKey = (providerKeys[aiProvider] || "").trim();
+    if (!activeKey) {
       setTestStatus({
         loading: false,
         success: false,
@@ -94,7 +95,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: aiProvider,
-          apiKey: apiKey.trim(),
+          apiKey: activeKey,
         }),
       });
 
@@ -106,7 +107,8 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
           message: data.message || "Verbindung erfolgreich!",
         });
         localStorage.setItem("studyhub_ai_status", "connected");
-        localStorage.setItem(`studyhub_api_key_${aiProvider}`, apiKey.trim());
+        localStorage.setItem(`studyhub_api_key_${aiProvider}`, activeKey);
+        localStorage.setItem("studyhub_api_key", activeKey);
       } else {
         setTestStatus({
           loading: false,
@@ -166,11 +168,19 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     const storedTarget = localStorage.getItem("studyhub_target_ects");
     if (storedTarget) setTargetEcts(Number(storedTarget));
 
-    const storedProvider = localStorage.getItem("studyhub_ai_provider");
+    const storedProvider = localStorage.getItem("studyhub_ai_provider") || "gemini";
     if (storedProvider) setAiProvider(storedProvider);
 
-    const storedKey = localStorage.getItem("studyhub_api_key");
-    if (storedKey) setApiKey(storedKey);
+    const legacyKey = localStorage.getItem("studyhub_api_key") || "";
+    const geminiKey = localStorage.getItem("studyhub_api_key_gemini") || (storedProvider === "gemini" ? legacyKey : "");
+    const openaiKey = localStorage.getItem("studyhub_api_key_openai") || (storedProvider === "openai" ? legacyKey : "");
+    const anthropicKey = localStorage.getItem("studyhub_api_key_anthropic") || (storedProvider === "anthropic" ? legacyKey : "");
+
+    setProviderKeys({
+      gemini: geminiKey,
+      openai: openaiKey,
+      anthropic: anthropicKey,
+    });
 
     const storedGoal = localStorage.getItem("studyhub_daily_goal");
     if (storedGoal) setDefaultDailyGoal(Number(storedGoal));
@@ -191,12 +201,17 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
   const handleSaveSettings = () => {
     localStorage.setItem("studyhub_target_ects", targetEcts.toString());
     localStorage.setItem("studyhub_ai_provider", aiProvider);
-    localStorage.setItem("studyhub_api_key", apiKey);
-    if (apiKey) {
-      localStorage.setItem(`studyhub_api_key_${aiProvider}`, apiKey);
-    }
     localStorage.setItem("studyhub_daily_goal", defaultDailyGoal.toString());
     localStorage.setItem("studyhub_session_size", defaultSessionSize.toString());
+
+    // Save each provider key in separate isolated storage keys
+    localStorage.setItem("studyhub_api_key_gemini", providerKeys.gemini || "");
+    localStorage.setItem("studyhub_api_key_openai", providerKeys.openai || "");
+    localStorage.setItem("studyhub_api_key_anthropic", providerKeys.anthropic || "");
+
+    const activeKey = providerKeys[aiProvider] || "";
+    localStorage.setItem("studyhub_api_key", activeKey);
+
     setShowSettings(false);
   };
 
@@ -669,9 +684,10 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                     <input
                       type="password"
                       placeholder={aiProvider === "gemini" ? "AIzaSy..." : "sk-..."}
-                      value={apiKey}
+                      value={providerKeys[aiProvider] || ""}
                       onChange={(e) => {
-                        setApiKey(e.target.value);
+                        const val = e.target.value;
+                        setProviderKeys((prev) => ({ ...prev, [aiProvider]: val }));
                         setTestStatus(null);
                       }}
                       className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"

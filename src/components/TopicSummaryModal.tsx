@@ -46,8 +46,11 @@ export function TopicSummaryModal({
     setLoading(true);
     setSummaryData(null);
     try {
-      const storedKey = localStorage.getItem("studyhub_api_key") || undefined;
       const storedProvider = localStorage.getItem("studyhub_ai_provider") || "local";
+      const storedKey =
+        localStorage.getItem(`studyhub_api_key_${storedProvider}`) ||
+        localStorage.getItem("studyhub_api_key") ||
+        undefined;
 
       const res = await fetch("/api/trainer/summary", {
         method: "POST",

@@ -81,8 +81,8 @@ export async function callGeminiJSON(
   preferredModel?: string
 ): Promise<{ parsed: any; modelUsed: string }> {
   const models = preferredModel
-    ? [preferredModel, "gemini-1.5-pro", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
-    : ["gemini-1.5-pro", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"];
+    ? [preferredModel, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
+    : ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.5-flash-lite", "gemini-1.5-flash"];
 
   const uniqueModels = Array.from(new Set(models));
   let lastError: any = null;
@@ -650,42 +650,57 @@ Extrahiere:
 3. Wichtige Fachtermini und Kernaussagen
 Formatiere das Ergebnis in klarem, strukturiertem Text/Markdown.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`;
+  const models = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-pro",
+    "gemini-2.5-flash-lite",
+    "gemini-1.5-flash",
+  ];
+  let lastError: any = null;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: prompt },
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${activeKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
             {
-              inlineData: {
-                mimeType,
-                data: fileBase64,
-              },
+              role: "user",
+              parts: [
+                { text: prompt },
+                {
+                  inlineData: {
+                    mimeType,
+                    data: fileBase64,
+                  },
+                },
+              ],
             },
           ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.1,
-      },
-    }),
-  });
+          generationConfig: {
+            temperature: 0.1,
+          },
+        }),
+      });
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Gemini Multimodal OCR fehlgeschlagen (${res.status}): ${errorText}`);
+      if (!res.ok) {
+        const errorText = await res.text();
+        lastError = new Error(`Gemini Multimodal OCR (${model}): ${res.status} ${errorText}`);
+        continue;
+      }
+
+      const json = await res.json();
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text && text.trim().length > 0) {
+        return text;
+      }
+    } catch (err: any) {
+      lastError = err;
+    }
   }
 
-  const json = await res.json();
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error("Gemini OCR lieferte keinen Text zurück.");
-  }
-
-  return text;
+  throw lastError || new Error("Gemini OCR lieferte keinen Text zurück.");
 }

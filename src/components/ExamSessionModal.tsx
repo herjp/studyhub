@@ -179,8 +179,11 @@ export function ExamSessionModal({
       if (!freeTextAnswer.trim()) return;
 
       setIsEvaluating(true);
-      const storedKey = localStorage.getItem("studyhub_api_key") || undefined;
       const storedProvider = (localStorage.getItem("studyhub_ai_provider") as any) || "local";
+      const storedKey =
+        localStorage.getItem(`studyhub_api_key_${storedProvider}`) ||
+        localStorage.getItem("studyhub_api_key") ||
+        undefined;
 
       try {
         const res = await fetch("/api/trainer/evaluate", {
