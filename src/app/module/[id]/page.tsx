@@ -35,6 +35,9 @@ import {
   RefreshCw,
   Copy,
   ArrowLeftRight,
+  Files,
+  Plus,
+  X,
 } from "lucide-react";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
 import { FahrschulBar } from "@/components/FahrschulBar";
@@ -160,6 +163,24 @@ async function compressImageForUpload(
   });
 }
 
+export interface UploadQueueItem {
+  id: string;
+  file: File;
+  name: string;
+  sizeStr: string;
+  title: string;
+  suggestedTitle?: string;
+  category: string;
+  isPastExam: boolean;
+  base64?: string;
+  mimeType: string;
+  clientExtractedText?: string;
+  isProcessing: boolean;
+  status: "idle" | "uploading" | "done" | "error";
+  errorMessage?: string;
+  extractedChars?: number;
+}
+
 function ModuleDetailContent() {
   const { lang, t } = useLanguage();
   const params = useParams();
@@ -226,15 +247,39 @@ function ModuleDetailContent() {
   };
   const [docSearchTerm, setDocSearchTerm] = useState("");
   const [copiedDocId, setCopiedDocId] = useState<string | null>(null);
-  const [uploadedFile, setUploadedFile] = useState<{
-    file: File;
-    name: string;
-    sizeStr: string;
-    base64?: string;
-    mimeType: string;
-    clientExtractedText?: string;
-  } | null>(null);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
+  const [uploadProgressIndex, setUploadProgressIndex] = useState<number>(0);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const updateQueueItemTitle = (id: string, newTitle: string) => {
+    setUploadQueue((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, title: newTitle } : it))
+    );
+  };
+
+  const updateQueueItemCategory = (id: string, newCategory: string) => {
+    setUploadQueue((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, category: newCategory } : it))
+    );
+  };
+
+  const updateQueueItemPastExam = (id: string, isPastExamVal: boolean) => {
+    setUploadQueue((prev) =>
+      prev.map((it) =>
+        it.id === id
+          ? {
+              ...it,
+              isPastExam: isPastExamVal,
+              category: isPastExamVal ? "EXAM_PAST" : it.category === "EXAM_PAST" ? "LECTURE_SLIDES" : it.category,
+            }
+          : it
+      )
+    );
+  };
+
+  const removeQueueItem = (id: string) => {
+    setUploadQueue((prev) => prev.filter((it) => it.id !== id));
+  };
 
   const handleSaveDocName = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -281,16 +326,29 @@ function ModuleDetailContent() {
     return 5;
   });
 
-  const handleFileSelected = async (file: File) => {
-    setUploadError(null);
-    setUploadSuccess(null);
+  const processQueueItem = async (file: File, defaultCategory: string, defaultIsPastExam: boolean): Promise<UploadQueueItem> => {
+    const id = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").trim();
+    const seemsExam = /klausur|exam|prüfung|pruefung|altklausur/i.test(file.name);
+    const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+    const sizeStr = file.size > 1024 * 1024 ? `${sizeMB} MB` : `${Math.round(file.size / 1024)} KB`;
 
-    // Auto-populate document title from filename
-    const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
-    if (!docTitle.trim()) {
-      setDocTitle(cleanName);
-    }
+    return {
+      id,
+      file,
+      name: file.name,
+      sizeStr,
+      title: cleanName || file.name,
+      category: seemsExam ? "EXAM_PAST" : defaultCategory,
+      isPastExam: seemsExam || defaultIsPastExam,
+      mimeType: file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream"),
+      isProcessing: true,
+      status: "idle",
+    };
+  };
 
+  const extractContentForItem = async (itemId: string, file: File, isSingleItem: boolean) => {
+    const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").trim();
     const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|heic)$/i.test(file.name);
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 
@@ -298,48 +356,59 @@ function ModuleDetailContent() {
     if (isImage) {
       try {
         const compressed = await compressImageForUpload(file);
-        setUploadedFile({
-          file,
-          name: file.name,
-          sizeStr: compressed.sizeStr,
-          base64: compressed.base64,
-          mimeType: compressed.mimeType,
-          clientExtractedText: undefined,
-        });
+        setUploadQueue((prev) =>
+          prev.map((it) =>
+            it.id === itemId
+              ? {
+                  ...it,
+                  base64: compressed.base64,
+                  mimeType: compressed.mimeType,
+                  sizeStr: compressed.sizeStr,
+                }
+              : it
+          )
+        );
 
-        // Trigger in-browser OCR (Tesseract.js) to extract German / English lecture text immediately
-        recognizeTextWithTesseract(file)
-          .then((ocrText) => {
-            if (ocrText && ocrText.trim().length > 20) {
-              const trimmed = ocrText.trim();
-              setUploadedFile((prev) =>
-                prev ? { ...prev, clientExtractedText: trimmed } : prev
-              );
+        try {
+          const ocrText = await recognizeTextWithTesseract(file);
+          if (ocrText && ocrText.trim().length > 20) {
+            const trimmed = ocrText.trim();
+            const detected = suggestDocumentTitleFromText(trimmed, cleanName);
+            setUploadQueue((prev) =>
+              prev.map((it) => {
+                if (it.id !== itemId) return it;
+                const shouldUpdate = isGenericDocTitle(it.title, it.name) || it.title === cleanName;
+                return {
+                  ...it,
+                  clientExtractedText: trimmed,
+                  suggestedTitle: detected || it.suggestedTitle,
+                  title: shouldUpdate && detected ? detected : it.title,
+                  isProcessing: false,
+                };
+              })
+            );
+            if (isSingleItem) {
               setDocText(trimmed);
-
-              // Auto-suggest document title from extracted text
-              const detected = suggestDocumentTitleFromText(trimmed, cleanName);
-              if (detected && detected !== cleanName) {
+              if (detected) {
                 setSuggestedDocTitle(detected);
-                setDocTitle((curr) =>
-                  isGenericDocTitle(curr, file.name) ? detected : curr
-                );
+                setDocTitle((curr) => isGenericDocTitle(curr, file.name) ? detected : curr);
               }
             }
-          })
-          .catch((err) => console.warn("Background OCR:", err));
-
+            return;
+          }
+        } catch (ocrErr) {
+          console.warn("Background OCR:", ocrErr);
+        }
+        setUploadQueue((prev) =>
+          prev.map((it) => (it.id === itemId ? { ...it, isProcessing: false } : it))
+        );
         return;
       } catch (err) {
         console.warn("Client photo compression fallback:", err);
       }
     }
 
-    const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-    const sizeStr = file.size > 1024 * 1024 ? `${sizeMB} MB` : `${Math.round(file.size / 1024)} KB`;
-
     // 2. Client-side PDF extraction: High-fidelity Mozilla PDF.js engine
-    // Decodes embedded font subsets, ToUnicode CMaps, and CID fonts to extract genuine sentences
     let clientText = "";
     if (isPdf) {
       try {
@@ -351,7 +420,6 @@ function ModuleDetailContent() {
         console.warn("Client PDF.js extraction fallback:", pdfJsErr);
       }
 
-      // Fallback to stream parser if PDF.js was unavailable or did not find valid text
       if (!clientText) {
         try {
           const ab = await file.arrayBuffer();
@@ -365,69 +433,89 @@ function ModuleDetailContent() {
       }
     }
 
-    // 3. If genuine digital text was extracted:
+    // 3. Digital text found in PDF
     if (clientText) {
-      setUploadedFile({
-        file,
-        name: file.name,
-        sizeStr,
-        base64: undefined,
-        mimeType: file.type || "application/pdf",
-        clientExtractedText: clientText,
-      });
-
-      // Auto-suggest document title from digital PDF text
       const detected = suggestDocumentTitleFromText(clientText, cleanName);
-      if (detected && detected !== cleanName) {
-        setSuggestedDocTitle(detected);
-        if (isGenericDocTitle(docTitle, file.name) || !docTitle.trim() || docTitle === cleanName) {
-          setDocTitle(detected);
+      setUploadQueue((prev) =>
+        prev.map((it) => {
+          if (it.id !== itemId) return it;
+          const shouldUpdate = isGenericDocTitle(it.title, it.name) || it.title === cleanName;
+          return {
+            ...it,
+            clientExtractedText: clientText,
+            suggestedTitle: detected || it.suggestedTitle,
+            title: shouldUpdate && detected ? detected : it.title,
+            isProcessing: false,
+          };
+        })
+      );
+      if (isSingleItem) {
+        setDocText(clientText);
+        if (detected) {
+          setSuggestedDocTitle(detected);
+          setDocTitle((curr) => isGenericDocTitle(curr, file.name) || !curr.trim() || curr === cleanName ? detected : curr);
         }
       }
       return;
     }
 
-    // 4. If PDF has NO digital text (it is a photo/scan PDF like Altklausur):
-    // Use PDF.js canvas rendering to compress pages into a crisp, high-res JPEG (~200 KB)
-    // This eliminates Vercel's 4.5 MB payload limit (413) and avoids OCR timeout (504).
+    // 4. Scanned PDF fallback: Render pages to compressed JPEG & run browser OCR
     if (isPdf) {
       try {
         const rendered = await renderPdfToCompressedJpeg(file);
         if (rendered && rendered.base64) {
-          setUploadedFile({
-            file,
-            name: file.name,
-            sizeStr: rendered.sizeStr,
-            base64: rendered.base64,
-            mimeType: rendered.mimeType,
-            clientExtractedText: undefined,
-          });
+          setUploadQueue((prev) =>
+            prev.map((it) =>
+              it.id === itemId
+                ? {
+                    ...it,
+                    base64: rendered.base64,
+                    mimeType: rendered.mimeType,
+                    sizeStr: rendered.sizeStr,
+                  }
+                : it
+            )
+          );
 
-          // Run browser OCR on rendered scan image as well
-          recognizeTextWithTesseract(`data:${rendered.mimeType};base64,${rendered.base64}`)
-            .then((ocrText) => {
-              if (ocrText && ocrText.trim().length > 20) {
-                const trimmed = ocrText.trim();
-                setUploadedFile((prev) =>
-                  prev ? { ...prev, clientExtractedText: trimmed } : prev
-                );
+          try {
+            const ocrText = await recognizeTextWithTesseract(
+              `data:${rendered.mimeType};base64,${rendered.base64}`
+            );
+            if (ocrText && ocrText.trim().length > 20) {
+              const trimmed = ocrText.trim();
+              const detected = suggestDocumentTitleFromText(trimmed, cleanName);
+              setUploadQueue((prev) =>
+                prev.map((it) => {
+                  if (it.id !== itemId) return it;
+                  const shouldUpdate = isGenericDocTitle(it.title, it.name) || it.title === cleanName;
+                  return {
+                    ...it,
+                    clientExtractedText: trimmed,
+                    suggestedTitle: detected || it.suggestedTitle,
+                    title: shouldUpdate && detected ? detected : it.title,
+                    isProcessing: false,
+                  };
+                })
+              );
+              if (isSingleItem) {
                 setDocText(trimmed);
-
-                const detected = suggestDocumentTitleFromText(trimmed, cleanName);
-                if (detected && detected !== cleanName) {
+                if (detected) {
                   setSuggestedDocTitle(detected);
-                  setDocTitle((curr) =>
-                    isGenericDocTitle(curr, file.name) ? detected : curr
-                  );
+                  setDocTitle((curr) => isGenericDocTitle(curr, file.name) ? detected : curr);
                 }
               }
-            })
-            .catch((err) => console.warn("Background PDF OCR:", err));
-
+              return;
+            }
+          } catch (ocrErr) {
+            console.warn("Background PDF OCR:", ocrErr);
+          }
+          setUploadQueue((prev) =>
+            prev.map((it) => (it.id === itemId ? { ...it, isProcessing: false } : it))
+          );
           return;
         }
       } catch (renderErr) {
-        console.warn("Render PDF to compressed JPEG error:", renderErr);
+        console.warn("Render PDF error:", renderErr);
       }
     }
 
@@ -436,26 +524,47 @@ function ModuleDetailContent() {
       const reader = new FileReader();
       reader.onload = (e) => {
         const base64 = e.target?.result as string;
-        setUploadedFile({
-          file,
-          name: file.name,
-          sizeStr,
-          base64,
-          mimeType: file.type || "application/pdf",
-          clientExtractedText: undefined,
-        });
+        setUploadQueue((prev) =>
+          prev.map((it) =>
+            it.id === itemId ? { ...it, base64, isProcessing: false } : it
+          )
+        );
       };
       reader.readAsDataURL(file);
     } else {
-      setUploadedFile({
-        file,
-        name: file.name,
-        sizeStr,
-        base64: undefined,
-        mimeType: file.type || "application/pdf",
-        clientExtractedText: undefined,
-      });
+      setUploadQueue((prev) =>
+        prev.map((it) => (it.id === itemId ? { ...it, isProcessing: false } : it))
+      );
     }
+  };
+
+  const handleFilesSelected = async (files: File[]) => {
+    if (!files || files.length === 0) return;
+    setUploadError(null);
+    setUploadSuccess(null);
+
+    const isSingle = files.length === 1 && uploadQueue.length === 0;
+    const newItems: UploadQueueItem[] = [];
+    for (const file of files) {
+      const item = await processQueueItem(file, docCategory, isPastExam);
+      newItems.push(item);
+    }
+
+    setUploadQueue((prev) => [...prev, ...newItems]);
+
+    // If single file and docTitle is empty, prefill docTitle
+    if (isSingle && !docTitle.trim()) {
+      setDocTitle(newItems[0].title);
+    }
+
+    // Trigger extraction in parallel
+    for (const item of newItems) {
+      extractContentForItem(item.id, item.file, isSingle);
+    }
+  };
+
+  const handleFileSelected = (file: File) => {
+    handleFilesSelected([file]);
   };
 
   // Trainer & Quiz Modal States
@@ -548,142 +657,232 @@ function ModuleDetailContent() {
     fetchCurrentUser();
   }, [moduleId]);
 
-  // Handle Document Upload
-  const handleUploadDocument = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handle Document Upload (Single or Multi-Document Batch)
+  const handleUploadDocument = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setUploadError(null);
     setUploadSuccess(null);
 
-    const effectiveTitle = docTitle.trim() || uploadedFile?.name?.replace(/\.[^/.]+$/, "") || "";
-    if (!effectiveTitle) {
-      setUploadError(
-        lang === "de"
-          ? "Bitte gib einen Namen für das Dokument ein oder wähle eine Datei aus."
-          : "Please enter a document title or select a file."
-      );
+    const storedProvider = typeof window !== "undefined" ? localStorage.getItem("studyhub_ai_provider") || "gemini" : "gemini";
+    const storedKey = typeof window !== "undefined" 
+      ? (localStorage.getItem(`studyhub_api_key_${storedProvider}`) || localStorage.getItem("studyhub_api_key") || undefined) 
+      : undefined;
+
+    // Case A: Manual Text Document (no files in queue)
+    if (uploadQueue.length === 0) {
+      const effectiveTitle = docTitle.trim();
+      if (!effectiveTitle) {
+        setUploadError(
+          lang === "de"
+            ? "Bitte gib einen Namen für das Dokument ein oder wähle eine Datei aus."
+            : "Please enter a document title or select a file."
+        );
+        return;
+      }
+
+      setIsUploading(true);
+      setUploadStage(lang === "de" ? "Indiziere Vorlesungsinhalte..." : "Indexing lecture contents...");
+
+      try {
+        const res = await fetch("/api/documents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            moduleId,
+            title: effectiveTitle,
+            category: isPastExam ? "EXAM_PAST" : docCategory,
+            isPastExam,
+            textContent: docText.trim() || undefined,
+            apiKey: storedKey,
+            provider: storedProvider,
+          }),
+        });
+
+        const rawText = await res.text();
+        let data: any = {};
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = { error: rawText.slice(0, 150) };
+        }
+
+        if (res.ok) {
+          setUploadSuccess(
+            lang === "de"
+              ? `✓ "${effectiveTitle}" erfolgreich hochgeladen und indexiert! (${data.extractedChars || 0} Zeichen Text erfasst)`
+              : `✓ "${effectiveTitle}" successfully uploaded and indexed! (${data.extractedChars || 0} characters parsed)`
+          );
+          setDocTitle("");
+          setSuggestedDocTitle("");
+          setDocText("");
+          setIsPastExam(false);
+          fetchModule();
+          setTimeout(() => setUploadSuccess(null), 8000);
+        } else {
+          setUploadError(data.error || "Fehler beim Erstellen des Dokuments.");
+          if (res.status === 401) setShowAuthModal(true);
+        }
+      } catch (err: any) {
+        setUploadError(err.message || "Netzwerkfehler.");
+      } finally {
+        setIsUploading(false);
+        setUploadStage("");
+      }
       return;
     }
 
-    const effectiveText = docText.trim() || uploadedFile?.clientExtractedText || undefined;
-
-    // Check if oversized scan file has no text and cannot fit in payload
-    if (uploadedFile && uploadedFile.file.size > 4.5 * 1024 * 1024 && !effectiveText) {
-      setUploadError(
-        lang === "de"
-          ? "Dieses Foto-/Scan-Dokument ist größer als 4.5 MB. Bitte teile es in zwei Abschnitte auf oder lade die Fotos der Seiten einzeln als JPG/PNG hoch."
-          : "This scanned document exceeds 4.5 MB. Please split it or upload page photos directly."
-      );
+    // Case B: Batch Upload Queue (1 or multiple files)
+    const itemsToUpload = uploadQueue.filter((it) => it.status !== "done");
+    if (itemsToUpload.length === 0) {
+      setUploadSuccess(lang === "de" ? "Alle Dokumente wurden bereits indexiert." : "All documents already indexed.");
       return;
     }
 
     setIsUploading(true);
-    setUploadStage(
-      uploadedFile?.clientExtractedText
-        ? (lang === "de" ? "Indiziere extrahierte Vorlesungsinhalte..." : "Indexing lecture contents...")
-        : (lang === "de" ? "✨ KI-Vision analysiert Foto-Seiten & Handschrift..." : "✨ AI Vision analyzing document...")
-    );
+    let successCount = 0;
+    let failCount = 0;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
+    for (let i = 0; i < itemsToUpload.length; i++) {
+      const item = itemsToUpload[i];
+      setUploadProgressIndex(i);
 
-    try {
-      const storedProvider = typeof window !== "undefined" ? localStorage.getItem("studyhub_ai_provider") || "gemini" : "gemini";
-      const storedKey = typeof window !== "undefined" 
-        ? (localStorage.getItem(`studyhub_api_key_${storedProvider}`) || localStorage.getItem("studyhub_api_key") || undefined) 
-        : undefined;
+      // Single item can also take docTitle or docText if user typed in main form
+      const effectiveTitle = (uploadQueue.length === 1 && docTitle.trim()) 
+        ? docTitle.trim() 
+        : item.title.trim() || item.name.replace(/\.[^/.]+$/, "");
 
-      const res = await fetch("/api/documents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          moduleId,
-          title: effectiveTitle,
-          category: isPastExam ? "EXAM_PAST" : docCategory,
-          isPastExam,
-          fileName: uploadedFile?.name,
-          fileBase64: uploadedFile?.base64,
-          mimeType: uploadedFile?.mimeType,
-          textContent: effectiveText,
-          apiKey: storedKey,
-          provider: storedProvider,
-        }),
-      });
-      clearTimeout(timeoutId);
+      const effectiveText = (uploadQueue.length === 1 && docText.trim())
+        ? (item.clientExtractedText ? `${item.clientExtractedText}\n\n${docText.trim()}` : docText.trim())
+        : item.clientExtractedText || undefined;
 
-      let errorMsg = "";
-      let data: any = {};
+      const effectiveCategory = uploadQueue.length === 1 ? (isPastExam ? "EXAM_PAST" : docCategory) : (item.isPastExam ? "EXAM_PAST" : item.category);
+      const effectiveIsPastExam = uploadQueue.length === 1 ? isPastExam : item.isPastExam;
+
+      setUploadStage(
+        itemsToUpload.length === 1
+          ? (item.clientExtractedText
+              ? (lang === "de" ? `Indiziere "${effectiveTitle}"...` : `Indexing "${effectiveTitle}"...`)
+              : (lang === "de" ? `✨ KI-Vision analysiert "${effectiveTitle}"...` : `✨ AI Vision analyzing "${effectiveTitle}"...`))
+          : (lang === "de"
+              ? `[${i + 1}/${itemsToUpload.length}] Indiziere "${effectiveTitle}"...`
+              : `[${i + 1}/${itemsToUpload.length}] Indexing "${effectiveTitle}"...`)
+      );
+
+      setUploadQueue((prev) =>
+        prev.map((it) => (it.id === item.id ? { ...it, status: "uploading", errorMessage: undefined } : it))
+      );
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
       try {
-        const rawText = await res.text();
-        try {
-          data = JSON.parse(rawText);
-          if (data.error) errorMsg = data.error;
-        } catch {
-          if (res.status === 413) {
-            errorMsg = lang === "de"
-              ? "Die Datei ist zu groß für den Upload (> 4.5 MB). Bitte wähle eine kleinere Bilddatei oder teile das PDF auf."
-              : "File payload is too large (> 4.5 MB).";
-          } else if (res.status === 401) {
-            errorMsg = lang === "de"
-              ? "Sitzung abgelaufen: Bitte melde dich an, um Dokumente zu speichern."
-              : "Session expired. Please log in.";
-          } else if (res.status === 403) {
-            errorMsg = lang === "de"
-              ? "Zugriff verweigert: Dieses Modul gehört zu einem anderen Benutzerkonto."
-              : "Access denied: Module belongs to another account.";
-          } else if (res.status === 504) {
-            errorMsg = lang === "de"
-              ? "Die KI-Analyse hat etwas länger gedauert. Bitte prüfe in der Liste unten, ob das Dokument bereits gespeichert wurde."
-              : "AI analysis took longer than usual.";
-            fetchModule();
-          } else {
-            errorMsg = rawText.slice(0, 150) || `Serverfehler (${res.status})`;
-          }
-        }
-      } catch (err: any) {
-        errorMsg = err.message || "Netzwerkfehler beim Hochladen.";
-      }
+        const res = await fetch("/api/documents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            moduleId,
+            title: effectiveTitle,
+            category: effectiveCategory,
+            isPastExam: effectiveIsPastExam,
+            fileName: item.name,
+            fileBase64: item.base64,
+            mimeType: item.mimeType,
+            textContent: effectiveText,
+            apiKey: storedKey,
+            provider: storedProvider,
+          }),
+        });
+        clearTimeout(timeoutId);
 
-      if (res.ok) {
-        setUploadSuccess(
-          lang === "de"
-            ? `✓ "${effectiveTitle}" erfolgreich hochgeladen und indexiert! (${data.extractedChars || 0} Zeichen Text erfasst)`
-            : `✓ "${effectiveTitle}" successfully uploaded and indexed! (${data.extractedChars || 0} characters parsed)`
+        let errorMsg = "";
+        let data: any = {};
+        try {
+          const rawText = await res.text();
+          try {
+            data = JSON.parse(rawText);
+            if (data.error) errorMsg = data.error;
+          } catch {
+            if (res.status === 413) {
+              errorMsg = lang === "de" ? "Datei zu groß (> 4.5 MB)" : "Payload too large (> 4.5 MB)";
+            } else if (res.status === 401) {
+              errorMsg = lang === "de" ? "Sitzung abgelaufen" : "Session expired";
+            } else if (res.status === 504) {
+              errorMsg = lang === "de" ? "KI-Zeitüberschreitung" : "AI timeout";
+            } else {
+              errorMsg = rawText.slice(0, 120) || `Serverfehler (${res.status})`;
+            }
+          }
+        } catch (readErr: any) {
+          errorMsg = readErr.message || "Netzwerkfehler";
+        }
+
+        if (res.ok) {
+          successCount++;
+          setUploadQueue((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? { ...it, status: "done", extractedChars: data.extractedChars || 0 }
+                : it
+            )
+          );
+        } else {
+          failCount++;
+          setUploadQueue((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? { ...it, status: "error", errorMessage: errorMsg || `Fehler (${res.status})` }
+                : it
+            )
+          );
+          if (res.status === 401) setShowAuthModal(true);
+        }
+      } catch (reqErr: any) {
+        clearTimeout(timeoutId);
+        failCount++;
+        const errMsg = reqErr.name === "AbortError"
+          ? (lang === "de" ? "Zeitüberschreitung" : "Timeout")
+          : (reqErr.message || "Netzwerkfehler");
+        setUploadQueue((prev) =>
+          prev.map((it) =>
+            it.id === item.id ? { ...it, status: "error", errorMessage: errMsg } : it
+          )
         );
+      }
+    }
+
+    fetchModule();
+    setIsUploading(false);
+    setUploadStage("");
+
+    if (successCount > 0 && failCount === 0) {
+      setUploadSuccess(
+        lang === "de"
+          ? (successCount === 1
+              ? `✓ Dokument erfolgreich hochgeladen und indexiert!`
+              : `✓ Alle ${successCount} Dokumente erfolgreich hochgeladen und indexiert!`)
+          : (successCount === 1
+              ? `✓ Document successfully uploaded and indexed!`
+              : `✓ All ${successCount} documents successfully uploaded and indexed!`)
+      );
+      setTimeout(() => {
+        setUploadQueue((prev) => prev.filter((it) => it.status !== "done"));
         setDocTitle("");
         setSuggestedDocTitle("");
         setDocText("");
-        setUploadedFile(null);
-        setIsPastExam(false);
-        fetchModule();
-        setTimeout(() => setUploadSuccess(null), 8000);
-      } else {
-        setUploadError(
-          errorMsg ||
-            (lang === "de"
-              ? "Fehler beim Hochladen des Dokuments. Bitte prüfe deine Anmeldung."
-              : "Failed to upload document.")
-        );
-        if (res.status === 401) {
-          setShowAuthModal(true);
-        }
-      }
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      console.error(err);
-      fetchModule();
-      if (err.name === "AbortError") {
-        setUploadError(
-          lang === "de"
-            ? "Der Upload hat länger als gewohnt gedauert. Prüfe bitte in der Liste der hinterlegten Unterlagen, ob das Dokument bereits angelegt wurde."
-            : "Upload took longer than expected. Please check below."
-        );
-      } else {
-        setUploadError(err.message || "Netzwerkfehler beim Hochladen.");
-      }
-    } finally {
-      setIsUploading(false);
-      setUploadStage("");
+      }, 3500);
+    } else if (successCount > 0 && failCount > 0) {
+      setUploadSuccess(
+        lang === "de"
+          ? `✓ ${successCount} Dokument(e) indexiert (${failCount} fehlgeschlagen).`
+          : `✓ ${successCount} document(s) indexed (${failCount} failed).`
+      );
+    } else if (failCount > 0) {
+      setUploadError(
+        lang === "de"
+          ? "Upload fehlgeschlagen. Bitte prüfe die Fehlermeldungen bei den einzelnen Dateien."
+          : "Upload failed. Please check the error messages."
+      );
     }
   };
 
@@ -1263,203 +1462,385 @@ function ModuleDetailContent() {
                 )}
 
                 <form onSubmit={handleUploadDocument} className="space-y-3.5">
+                  {/* Drag & Drop Zone (Supports Multi-File Drag & Drop or Selection) */}
                   <div>
-                    <div className="flex items-center justify-between gap-1 mb-1 flex-wrap">
-                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        {t.uploadDocNameLabel}
-                      </label>
-                      {suggestedDocTitle && docTitle !== suggestedDocTitle && (
-                        <button
-                          type="button"
-                          onClick={() => setDocTitle(suggestedDocTitle)}
-                          className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 flex items-center gap-1 cursor-pointer transition-colors"
-                        >
-                          <Sparkles className="w-3 h-3 text-indigo-500" />
-                          {lang === "de" ? "Vorschlag übernehmen:" : "Apply suggested title:"} „{suggestedDocTitle}“
-                        </button>
-                      )}
-                    </div>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder={suggestedDocTitle || t.uploadDocNamePlaceholder}
-                        value={docTitle}
-                        onChange={(e) => setDocTitle(e.target.value)}
-                        className={`w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 ${
-                          suggestedDocTitle && docTitle === suggestedDocTitle ? "pr-28" : ""
-                        }`}
-                      />
-                      {suggestedDocTitle && docTitle === suggestedDocTitle && (
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-lg pointer-events-none shadow-2xs">
-                          <CheckCircle2 className="w-3 h-3" /> {lang === "de" ? "Aus Inhalt erkannt" : "From content"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      {t.categoryLabel}
-                    </label>
-                    <select
-                      value={docCategory}
-                      onChange={(e) => setDocCategory(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                    >
-                      <option value="LECTURE_SLIDES">{t.catSlides}</option>
-                      <option value="EXAM_PAST">{t.pastExamBadge}</option>
-                      <option value="EXERCISE">{t.catExercises}</option>
-                      <option value="LITERATURE">{t.catLiterature}</option>
-                    </select>
-                  </div>
-
-                  {/* Special Past Exam Checkbox */}
-                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-start gap-2.5">
-                    <input
-                      type="checkbox"
-                      id="isPastExamCheck"
-                      checked={isPastExam}
-                      onChange={(e) => setIsPastExam(e.target.checked)}
-                      className="rounded border-amber-400 text-indigo-600 focus:ring-indigo-500 mt-0.5"
-                    />
-                    <label
-                      htmlFor="isPastExamCheck"
-                      className="text-xs text-amber-900 dark:text-amber-200 font-medium cursor-pointer"
-                    >
-                      <span className="font-bold block">{t.markAsPastExam}</span>
-                      {t.pastExamHint}
-                    </label>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      {lang === "de" ? "Datei hochladen (PDF, PNG, JPEG)" : "Upload File (PDF, PNG, JPEG)"}
-                    </label>
                     <div
                       onClick={() => fileInputRef.current?.click()}
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={(e) => {
                         e.preventDefault();
-                        const file = e.dataTransfer.files?.[0];
-                        if (file) handleFileSelected(file);
+                        const files = Array.from(e.dataTransfer.files || []);
+                        if (files.length > 0) handleFilesSelected(files);
                       }}
                       className={`border-2 border-dashed rounded-2xl p-4 text-center cursor-pointer transition-all ${
-                        uploadedFile
-                          ? "border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30"
+                        uploadQueue.length > 0
+                          ? "border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20"
                           : "border-indigo-200 dark:border-indigo-900/60 hover:border-indigo-500 bg-indigo-50/20 dark:bg-indigo-950/20"
                       }`}
                     >
                       <input
                         ref={fileInputRef}
                         type="file"
+                        multiple
                         accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf"
                         onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleFileSelected(file);
+                          const files = Array.from(e.target.files || []);
+                          if (files.length > 0) handleFilesSelected(files);
+                          e.target.value = "";
                         }}
                         className="hidden"
                       />
 
-                      {uploadedFile ? (
-                        <div className="flex items-center justify-between gap-2 text-left">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
-                              <FileCheck className="w-4 h-4" />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                                {uploadedFile.name}
-                              </p>
-                              <p className="text-[10px] text-slate-500">
-                                {uploadedFile.sizeStr} • {uploadedFile.mimeType.includes("pdf") ? "PDF Dokument" : "Folie / Foto"}
-                                {uploadedFile.clientExtractedText ? (
-                                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-1">
-                                    • ✓ {uploadedFile.clientExtractedText.length} Zeichen Text erkannt
-                                  </span>
-                                ) : uploadedFile.mimeType.startsWith("image/") ? (
-                                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold ml-1">
-                                    • ✨ KI-Fotoerkennung aktiv (Gemini Vision OCR)
-                                  </span>
-                                ) : (
-                                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold ml-1">
-                                    • 📸 Foto- / Scan-PDF (Gemini Vision OCR)
-                                  </span>
-                                )}
-                              </p>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setUploadedFile(null);
-                              setSuggestedDocTitle("");
-                            }}
-                            className="text-xs font-bold text-slate-400 hover:text-rose-500 p-1"
-                          >
-                            ✕
-                          </button>
+                      <div className="flex flex-col items-center justify-center">
+                        <div className="w-10 h-10 rounded-2xl bg-indigo-100 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-2">
+                          {uploadQueue.length > 0 ? (
+                            <Files className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                          ) : (
+                            <UploadCloud className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                          )}
                         </div>
-                      ) : (
-                        <div>
-                          <UploadCloud className="w-6 h-6 text-indigo-500 mx-auto mb-1.5" />
-                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                            {lang === "de" ? "PDF oder Folien (PNG, JPG) ablegen" : "Drop PDF or slides here"}
-                          </p>
-                          <p className="text-[10px] text-slate-500 mt-0.5">
-                            {lang === "de" ? "Automatische Texterkennung & Indizierung durch KI" : "Auto text recognition & AI indexing"}
-                          </p>
-                        </div>
-                      )}
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                          {uploadQueue.length > 0
+                            ? (lang === "de" ? "+ Weitere Dokumente (PDF, Bilder, Scans) hinzufügen" : "+ Add more documents (PDF, images, scans)")
+                            : (lang === "de" ? "Dokumente & Vorlesungsfolien (PDF, PNG, JPG) ablegen" : "Drop lecture documents & slides (PDF, PNG, JPG) here")}
+                        </p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          {lang === "de"
+                            ? "✨ Mehrere Dateien gleichzeitig möglich • Automatische Titelerkennung & OCR"
+                            : "✨ Multi-file upload supported • Automatic title detection & OCR"}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      {lang === "de"
-                        ? (docText.trim() ? "Extrahierter / bearbeitbarer Vorlesungstext:" : "Zusätzliche Notizen oder Text (optional)")
-                        : (docText.trim() ? "Extracted / Editable Lecture Text:" : "Additional Notes or Text (optional)")}
-                    </label>
-                    <textarea
-                      rows={docText.trim().length > 80 ? 5 : 2}
-                      placeholder={t.docTextContentPlaceholder}
-                      value={docText}
-                      onChange={(e) => setDocText(e.target.value)}
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-[11px]"
-                    />
-                  </div>
+                  {/* Case 1: Pure manual text document (no files in queue) */}
+                  {uploadQueue.length === 0 && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          {t.uploadDocNameLabel}
+                        </label>
+                        <input
+                          type="text"
+                          placeholder={t.uploadDocNamePlaceholder}
+                          value={docTitle}
+                          onChange={(e) => setDocTitle(e.target.value)}
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                        />
+                      </div>
 
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          {t.categoryLabel}
+                        </label>
+                        <select
+                          value={docCategory}
+                          onChange={(e) => setDocCategory(e.target.value)}
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                        >
+                          <option value="LECTURE_SLIDES">{t.catSlides}</option>
+                          <option value="EXAM_PAST">{t.pastExamBadge}</option>
+                          <option value="EXERCISE">{t.catExercises}</option>
+                          <option value="LITERATURE">{t.catLiterature}</option>
+                        </select>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          id="isPastExamCheck"
+                          checked={isPastExam}
+                          onChange={(e) => setIsPastExam(e.target.checked)}
+                          className="rounded border-amber-400 text-indigo-600 focus:ring-indigo-500 mt-0.5"
+                        />
+                        <label
+                          htmlFor="isPastExamCheck"
+                          className="text-xs text-amber-900 dark:text-amber-200 font-medium cursor-pointer"
+                        >
+                          <span className="font-bold block">{t.markAsPastExam}</span>
+                          {t.pastExamHint}
+                        </label>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          {lang === "de" ? "Vorlesungstext oder Notizen (optional):" : "Lecture Text or Notes (optional):"}
+                        </label>
+                        <textarea
+                          rows={3}
+                          placeholder={t.docTextContentPlaceholder}
+                          value={docText}
+                          onChange={(e) => setDocText(e.target.value)}
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-[11px]"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Case 2: Upload Queue Cards (1 or multiple files selected) */}
+                  {uploadQueue.length > 0 && (
+                    <div className="space-y-3">
+                      {/* Queue header & summary */}
+                      <div className="flex items-center justify-between gap-2 px-1">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
+                          <Files className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                          <span>
+                            {uploadQueue.length === 1
+                              ? (lang === "de" ? "1 Dokument ausgewählt" : "1 document selected")
+                              : (lang === "de" ? `${uploadQueue.length} Dokumente in Warteschlange` : `${uploadQueue.length} documents in queue`)}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            ({uploadQueue.reduce((acc, it) => acc + (it.file?.size || 0), 0) > 1024 * 1024
+                              ? `${(uploadQueue.reduce((acc, it) => acc + (it.file?.size || 0), 0) / (1024 * 1024)).toFixed(1)} MB`
+                              : `${Math.round(uploadQueue.reduce((acc, it) => acc + (it.file?.size || 0), 0) / 1024)} KB`})
+                          </span>
+                        </div>
+                        {!isUploading && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUploadQueue([]);
+                              setDocTitle("");
+                              setSuggestedDocTitle("");
+                              setDocText("");
+                            }}
+                            className="text-[11px] text-rose-500 hover:text-rose-600 font-semibold cursor-pointer"
+                          >
+                            {lang === "de" ? "Alle entfernen" : "Clear all"}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Scrollable list of document cards in the queue */}
+                      <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
+                        {uploadQueue.map((item) => (
+                          <div
+                            key={item.id}
+                            className={`p-3 rounded-xl border transition-all ${
+                              item.status === "done"
+                                ? "border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/30 dark:bg-emerald-950/20"
+                                : item.status === "uploading"
+                                ? "border-indigo-300 dark:border-indigo-700 bg-indigo-50/30 dark:bg-indigo-950/30 shadow-xs"
+                                : item.status === "error"
+                                ? "border-rose-200 dark:border-rose-800 bg-rose-50/30 dark:bg-rose-950/20"
+                                : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/80"
+                            }`}
+                          >
+                            {/* Item header */}
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div
+                                  className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                    item.status === "done"
+                                      ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400"
+                                      : item.status === "uploading"
+                                      ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400"
+                                      : item.status === "error"
+                                      ? "bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400"
+                                      : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                                  }`}
+                                >
+                                  {item.status === "done" ? (
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  ) : item.status === "uploading" ? (
+                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                  ) : item.status === "error" ? (
+                                    <AlertCircle className="w-4 h-4" />
+                                  ) : item.mimeType.includes("pdf") ? (
+                                    <FileText className="w-4 h-4" />
+                                  ) : (
+                                    <FileCheck className="w-4 h-4" />
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                                    {item.name}
+                                  </p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {item.sizeStr} • {item.mimeType.includes("pdf") ? "PDF" : "Foto / Folie"}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {!isUploading && item.status !== "done" && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeQueueItem(item.id)}
+                                  className="w-6 h-6 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-xs transition-colors"
+                                  title={lang === "de" ? "Datei entfernen" : "Remove file"}
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Editable Title */}
+                            <div className="mt-2.5 space-y-1">
+                              <div className="flex items-center justify-between text-[11px] flex-wrap gap-1">
+                                <span className="text-slate-500 dark:text-slate-400 font-semibold">
+                                  {lang === "de" ? "Titel im Modul:" : "Title in module:"}
+                                </span>
+                                {item.suggestedTitle && item.title !== item.suggestedTitle && item.status !== "done" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateQueueItemTitle(item.id, item.suggestedTitle!)}
+                                    className="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+                                  >
+                                    <Sparkles className="w-2.5 h-2.5" />
+                                    {lang === "de" ? "Vorschlag:" : "Suggest:"} „{item.suggestedTitle}“
+                                  </button>
+                                )}
+                                {item.suggestedTitle && item.title === item.suggestedTitle && (
+                                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                                    <Check className="w-2.5 h-2.5" /> {lang === "de" ? "Aus Inhalt erkannt" : "From content"}
+                                  </span>
+                                )}
+                              </div>
+                              <input
+                                type="text"
+                                disabled={item.status === "done" || isUploading}
+                                value={item.title}
+                                onChange={(e) => updateQueueItemTitle(item.id, e.target.value)}
+                                className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium"
+                                placeholder={lang === "de" ? "Titel des Dokuments" : "Document title"}
+                              />
+                            </div>
+
+                            {/* Category & Past Exam */}
+                            <div className="mt-2 flex items-center gap-2 flex-wrap">
+                              <select
+                                disabled={item.status === "done" || isUploading}
+                                value={item.category}
+                                onChange={(e) => updateQueueItemCategory(item.id, e.target.value)}
+                                className="px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                              >
+                                <option value="LECTURE_SLIDES">{t.catSlides}</option>
+                                <option value="EXAM_PAST">{t.pastExamBadge}</option>
+                                <option value="EXERCISE">{t.catExercises}</option>
+                                <option value="LITERATURE">{t.catLiterature}</option>
+                              </select>
+
+                              <label className="text-[11px] text-amber-800 dark:text-amber-200 flex items-center gap-1.5 cursor-pointer bg-amber-50 dark:bg-amber-950/40 border border-amber-200/60 dark:border-amber-800/40 px-2 py-0.5 rounded-lg">
+                                <input
+                                  type="checkbox"
+                                  disabled={item.status === "done" || isUploading}
+                                  checked={item.isPastExam}
+                                  onChange={(e) => updateQueueItemPastExam(item.id, e.target.checked)}
+                                  className="rounded border-amber-400 text-indigo-600 text-xs"
+                                />
+                                <span className="font-semibold">{t.markAsPastExam}</span>
+                              </label>
+                            </div>
+
+                            {/* Extraction & Upload Status Indicator */}
+                            <div className="mt-2 text-[10px] flex items-center gap-1.5 flex-wrap">
+                              {item.isProcessing ? (
+                                <span className="text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" /> {lang === "de" ? "Texterkennung läuft im Browser..." : "Browser OCR in progress..."}
+                                </span>
+                              ) : item.clientExtractedText ? (
+                                <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                                  <Check className="w-2.5 h-2.5" /> {lang === "de" ? `${item.clientExtractedText.length} Zeichen Text erkannt` : `${item.clientExtractedText.length} chars text recognized`}
+                                </span>
+                              ) : item.mimeType.startsWith("image/") ? (
+                                <span className="text-indigo-600 dark:text-indigo-400 flex items-center gap-1 font-medium">
+                                  ✨ {lang === "de" ? "KI-Fotoerkennung aktiv (Gemini Vision OCR)" : "AI Vision OCR active"}
+                                </span>
+                              ) : (
+                                <span className="text-indigo-600 dark:text-indigo-400 flex items-center gap-1 font-medium">
+                                  📸 {lang === "de" ? "Foto- / Scan-PDF (Gemini Vision OCR)" : "Photo/Scan PDF (Gemini Vision)"}
+                                </span>
+                              )}
+
+                              {item.status === "done" && (
+                                <span className="text-emerald-600 dark:text-emerald-400 font-bold ml-auto flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  {lang === "de" ? `Erfolgreich indiziert (${item.extractedChars || 0} Zeichen)` : `Indexed (${item.extractedChars || 0} chars)`}
+                                </span>
+                              )}
+                              {item.status === "error" && (
+                                <span className="text-rose-600 dark:text-rose-400 font-semibold ml-auto flex items-center gap-1">
+                                  <AlertCircle className="w-3 h-3" />
+                                  {item.errorMessage}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* If single file, show optional editable text area */}
+                            {uploadQueue.length === 1 && (
+                              <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                                  {lang === "de"
+                                    ? (docText.trim() ? "Extrahierter / bearbeitbarer Vorlesungstext:" : "Zusätzliche Notizen oder Text (optional):")
+                                    : (docText.trim() ? "Extracted / Editable Text:" : "Additional Notes or Text (optional):")}
+                                </label>
+                                <textarea
+                                  rows={docText.trim().length > 80 ? 4 : 2}
+                                  placeholder={t.docTextContentPlaceholder}
+                                  value={docText}
+                                  onChange={(e) => setDocText(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-[11px]"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Upload Progress Banner */}
                   {isUploading && (
                     <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 space-y-1.5 animate-in fade-in">
                       <div className="flex items-center gap-2 font-bold text-xs">
                         <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600 dark:text-indigo-400" />
-                        <span>{uploadStage || (lang === "de" ? "Dokument wird verarbeitet..." : "Processing document...")}</span>
+                        <span>{uploadStage || (lang === "de" ? "Dokumente werden verarbeitet..." : "Processing documents...")}</span>
                       </div>
-                      <div className="w-full bg-indigo-200 dark:bg-indigo-900 h-1 rounded-full overflow-hidden">
-                        <div className="h-full bg-indigo-600 rounded-full animate-pulse w-3/4" />
+                      <div className="w-full bg-indigo-200 dark:bg-indigo-900 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-indigo-600 rounded-full transition-all duration-300"
+                          style={{
+                            width: `${
+                              uploadQueue.length > 0
+                                ? Math.round(((uploadProgressIndex + 1) / Math.max(1, uploadQueue.filter((i) => i.status !== "done").length)) * 100)
+                                : 65
+                            }%`,
+                          }}
+                        />
                       </div>
                       <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                        {uploadedFile?.clientExtractedText
-                          ? (lang === "de" ? "Extrahierter Text wird semantisch indiziert und Prüfungsstoff zugeordnet." : "Extracted text is being indexed.")
-                          : (lang === "de" ? "Gemini analysiert Handschrift, Aufgaben & Folien per Multimodal-OCR." : "Gemini is transcribing handwritten notes & slides.")}
+                        {lang === "de"
+                          ? "Jedes Dokument wird einzeln per Multimodal-KI & RAG-Pipeline erfasst, komprimiert und den Modul-Themen zugeordnet."
+                          : "Each document is individually processed, compressed, and mapped to module topics."}
                       </p>
                     </div>
                   )}
 
+                  {/* Submit / Upload Button */}
                   <button
                     type="submit"
-                    disabled={isUploading}
-                    className="w-full py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all"
+                    disabled={isUploading || (uploadQueue.length > 0 && uploadQueue.every((i) => i.status === "done"))}
+                    className="w-full py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                   >
                     {isUploading ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        {t.uploadingAndIndexing}
+                        {uploadQueue.length > 1
+                          ? (lang === "de"
+                              ? `Lade Dokument ${uploadProgressIndex + 1} von ${uploadQueue.filter((i) => i.status !== "done").length} hoch...`
+                              : `Uploading document ${uploadProgressIndex + 1} of ${uploadQueue.filter((i) => i.status !== "done").length}...`)
+                          : t.uploadingAndIndexing}
                       </>
                     ) : (
                       <>
                         <Upload className="w-3.5 h-3.5" />
-                        {t.uploadAndIndexBtn}
+                        {uploadQueue.length > 1
+                          ? (lang === "de"
+                              ? `Alle ${uploadQueue.filter((i) => i.status !== "done").length} Dokumente nacheinander hochladen & indexieren`
+                              : `Upload & Index All ${uploadQueue.filter((i) => i.status !== "done").length} Documents`)
+                          : uploadQueue.length === 1
+                          ? (lang === "de" ? "1 Dokument hochladen & indexieren" : "Upload & Index Document")
+                          : t.uploadAndIndexBtn}
                       </>
                     )}
                   </button>
