@@ -1,6 +1,36 @@
 import { inflate, inflateRaw } from "pako";
 
 /**
+ * Strips null bytes (0x00) and dangerous non-printable control characters
+ * to ensure compatibility with PostgreSQL text / varchar columns.
+ */
+export function sanitizePostgresString(str: string): string {
+  if (!str) return "";
+  return str
+    .replace(/\0/g, "") // Remove 0x00 null bytes (Postgres error 22021)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ") // Replace control chars with space
+    .trim();
+}
+
+/**
+ * Validates whether an extracted string is genuine human-readable text
+ * rather than random binary image data or noise.
+ */
+export function isValidPdfText(text: string): boolean {
+  if (!text || text.trim().length < 25) return false;
+  const clean = text.replace(/\s+/g, "");
+  if (clean.length < 15) return false;
+
+  // Count printable characters (letters, numbers, common German/English punctuation, symbols)
+  const printableMatch = clean.match(/[\p{L}\p{N}\p{P}\p{S}]/gu);
+  if (!printableMatch) return false;
+
+  const ratio = printableMatch.length / clean.length;
+  // Real text must be at least 75% printable glyphs
+  return ratio >= 0.75;
+}
+
+/**
  * Decodes standard PDF escape sequences in literal strings: (text)
  */
 function decodePdfLiteralString(str: string): string {
@@ -54,6 +84,7 @@ function decodePdfHexString(hex: string): string {
 
 /**
  * Extracts readable text from an ArrayBuffer (runs in both Browser and Node.js).
+ * Returns empty string if the PDF contains scanned photos or images without real text.
  */
 export function extractPdfTextFromArrayBuffer(arrayBuffer: ArrayBuffer): string {
   try {
@@ -83,23 +114,22 @@ export function extractPdfTextFromArrayBuffer(arrayBuffer: ArrayBuffer): string 
           const out = inflateRaw(rawStreamBytes);
           decompressed = new TextDecoder("latin1").decode(out);
         } catch {
+          // Uncompressed text stream
           decompressed = rawStreamStr;
         }
       }
 
       if (!decompressed) continue;
 
-      if (
-        decompressed.includes("BT") ||
-        decompressed.includes("Tj") ||
-        decompressed.includes("TJ") ||
-        decompressed.includes("T*")
-      ) {
-        const btBlocks = decompressed.match(/BT[\s\S]*?ET/g) || [decompressed];
+      // Only search for text if explicit Begin Text (BT) and End Text (ET) operators exist
+      if (decompressed.includes("BT") && decompressed.includes("ET")) {
+        const btBlocks = decompressed.match(/BT[\s\S]*?ET/g);
+        if (!btBlocks) continue;
+
         for (const block of btBlocks) {
           let blockText = "";
 
-          // Match literal string operator: (text) Tj or ' or "
+          // 1. Match literal string operator: (text) Tj or ' or "
           const singleTjRegex = /\(([\s\S]*?)\)\s*(?:Tj|'|")/g;
           let tjMatch: RegExpExecArray | null;
           while ((tjMatch = singleTjRegex.exec(block)) !== null) {
@@ -107,7 +137,7 @@ export function extractPdfTextFromArrayBuffer(arrayBuffer: ArrayBuffer): string 
             if (decoded.trim()) blockText += decoded + " ";
           }
 
-          // Match hex string operator: <hex> Tj
+          // 2. Match hex string operator: <hex> Tj
           const hexTjRegex = /<([0-9a-fA-F\s]+)>\s*(?:Tj|'|")/g;
           let hexMatch: RegExpExecArray | null;
           while ((hexMatch = hexTjRegex.exec(block)) !== null) {
@@ -115,7 +145,7 @@ export function extractPdfTextFromArrayBuffer(arrayBuffer: ArrayBuffer): string 
             if (decoded.trim()) blockText += decoded + " ";
           }
 
-          // Match array string operator: [(t) 10 (e) 20 (x)] TJ
+          // 3. Match array string operator: [(t) 10 (e) 20 (x)] TJ
           const arrayTjRegex = /\[([\s\S]*?)\]\s*TJ/g;
           let arrMatch: RegExpExecArray | null;
           while ((arrMatch = arrayTjRegex.exec(block)) !== null) {
@@ -140,21 +170,19 @@ export function extractPdfTextFromArrayBuffer(arrayBuffer: ArrayBuffer): string 
       }
     }
 
-    // Fallback: If no text was found in streams, try direct uncompressed document body
-    if (extractedLines.length === 0) {
-      const directRegex = /\(([\s\S]*?)\)\s*(?:Tj|'|")/g;
-      let directMatch: RegExpExecArray | null;
-      while ((directMatch = directRegex.exec(rawContent)) !== null) {
-        const decoded = decodePdfLiteralString(directMatch[1]);
-        if (decoded.trim()) extractedLines.push(decoded.trim());
-      }
-    }
-
-    return extractedLines
+    const rawResult = extractedLines
       .join("\n")
       .replace(/[ \t]+/g, " ")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+      .replace(/\n{3,}/g, "\n\n");
+
+    const sanitized = sanitizePostgresString(rawResult);
+
+    // If it's not genuine human text (e.g. scanned image PDF), return empty string so Gemini Vision runs!
+    if (!isValidPdfText(sanitized)) {
+      return "";
+    }
+
+    return sanitized;
   } catch (err: any) {
     console.warn("ArrayBuffer PDF parsing error:", err.message);
     return "";

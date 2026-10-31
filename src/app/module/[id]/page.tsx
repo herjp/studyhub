@@ -199,8 +199,10 @@ function ModuleDetailContent() {
       }
     }
 
-    // 3. Only read base64 for PDFs if under 3.8 MB (prevents Vercel 4.5 MB request payload crash)
-    if (file.size < 3.8 * 1024 * 1024) {
+    // 3. Base64 handling:
+    // - If we extracted real digital text, we omit base64 (keeps payload tiny < 50 KB, uploads instantly)
+    // - If it is a scanned photo-PDF without embedded text, we load base64 so Gemini Vision OCR can read the pages
+    if (!clientText && file.size <= 4.5 * 1024 * 1024) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const base64 = e.target?.result as string;
@@ -209,20 +211,19 @@ function ModuleDetailContent() {
           name: file.name,
           sizeStr,
           base64,
-          mimeType: file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg"),
-          clientExtractedText: clientText,
+          mimeType: file.type || "application/pdf",
+          clientExtractedText: undefined,
         });
       };
       reader.readAsDataURL(file);
     } else {
-      // Large file: rely on clientExtractedText without sending heavy 5 MB binary to serverless function
       setUploadedFile({
         file,
         name: file.name,
         sizeStr,
         base64: undefined,
         mimeType: file.type || "application/pdf",
-        clientExtractedText: clientText,
+        clientExtractedText: clientText || undefined,
       });
     }
   };
@@ -953,7 +954,11 @@ function ModuleDetailContent() {
                                   <span className="text-indigo-600 dark:text-indigo-400 font-semibold ml-1">
                                     • ✨ KI-Fotoerkennung aktiv (Gemini Vision OCR)
                                   </span>
-                                ) : null}
+                                ) : (
+                                  <span className="text-indigo-600 dark:text-indigo-400 font-semibold ml-1">
+                                    • 📸 Foto- / Scan-PDF (Gemini Vision OCR)
+                                  </span>
+                                )}
                               </p>
                             </div>
                           </div>

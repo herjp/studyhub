@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { DocumentCategory } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { extractDocumentWithGemini } from "@/lib/ai-service";
-import { extractPdfTextFromBuffer } from "@/lib/pdf-extractor";
+import { extractPdfTextFromBuffer, sanitizePostgresString } from "@/lib/pdf-extractor";
 
 export async function POST(req: Request) {
   try {
@@ -114,16 +114,20 @@ export async function POST(req: Request) {
       finalParsedText = `[Vorlesungsdokument: ${trimmedTitle}]\nDokument für das Modul ${mod.name} (${fileName || trimmedTitle}). Enthält Prüfungsschwerpunkte für die Klausurvorbereitung.`;
     }
 
-    // 3. Create document record
+    const safeTitle = sanitizePostgresString(trimmedTitle);
+    const safeFileName = sanitizePostgresString(fileName || `${trimmedTitle.toLowerCase().replace(/\s+/g, "_")}.pdf`);
+    const safeParsedText = sanitizePostgresString(finalParsedText);
+
+    // 3. Create document record (guaranteed safe against Postgres 22021 null byte error)
     const doc = await prisma.document.create({
       data: {
         moduleId,
-        title: trimmedTitle,
-        fileName: fileName || `${trimmedTitle.toLowerCase().replace(/\s+/g, "_")}.pdf`,
-        fileUrl: `/uploads/${encodeURIComponent(trimmedTitle)}`,
+        title: safeTitle,
+        fileName: safeFileName,
+        fileUrl: `/uploads/${encodeURIComponent(safeTitle)}`,
         category: effectiveCategory,
         isIndexed: true,
-        parsedText: finalParsedText,
+        parsedText: safeParsedText,
       },
     });
 
@@ -132,9 +136,9 @@ export async function POST(req: Request) {
       await prisma.topic.create({
         data: {
           moduleId,
-          name: trimmedTitle,
+          name: safeTitle,
           masteryScore: 50,
-          summary: `Themenbereich basierend auf dem Dokument "${trimmedTitle}".`,
+          summary: `Themenbereich basierend auf dem Dokument "${safeTitle}".`,
         },
       });
     }
@@ -142,7 +146,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ...doc,
-        extractedChars: finalParsedText.length,
+        extractedChars: safeParsedText.length,
         hasText: finalParsedText.length > 50,
         success: true,
       },
