@@ -1,4 +1,4 @@
-import zlib from "zlib";
+import { inflate, inflateRaw } from "pako";
 
 /**
  * Decodes standard PDF escape sequences in literal strings: (text)
@@ -53,79 +53,76 @@ function decodePdfHexString(hex: string): string {
 }
 
 /**
- * Extracts readable text from a PDF Buffer in pure JavaScript without external worker dependencies.
- * Parses PDF stream objects (FlateDecode compressed and uncompressed) and extracts Tj / TJ text commands.
+ * Extracts readable text from an ArrayBuffer (runs in both Browser and Node.js).
  */
-export function extractPdfTextFromBuffer(buffer: Buffer): string {
+export function extractPdfTextFromArrayBuffer(arrayBuffer: ArrayBuffer): string {
   try {
-    const rawContent = buffer.toString("latin1");
-    const extractedLines: string[] = [];
+    const uint8 = new Uint8Array(arrayBuffer);
+    let rawContent = "";
+    for (let i = 0; i < uint8.length; i++) {
+      rawContent += String.fromCharCode(uint8[i]);
+    }
 
-    // Regex to locate stream ... endstream blocks in PDF
+    const extractedLines: string[] = [];
     const streamRegex = /stream[\r\n]+([\s\S]*?)[\r\n]+endstream/g;
     let streamMatch: RegExpExecArray | null;
 
     while ((streamMatch = streamRegex.exec(rawContent)) !== null) {
-      const rawStream = Buffer.from(streamMatch[1], "latin1");
-      let decompressed = "";
+      const rawStreamStr = streamMatch[1];
+      const rawStreamBytes = new Uint8Array(rawStreamStr.length);
+      for (let i = 0; i < rawStreamStr.length; i++) {
+        rawStreamBytes[i] = rawStreamStr.charCodeAt(i);
+      }
 
-      // 1. Try decompressing using zlib (FlateDecode)
+      let decompressed = "";
       try {
-        decompressed = zlib.inflateSync(rawStream).toString("latin1");
+        const out = inflate(rawStreamBytes);
+        decompressed = new TextDecoder("latin1").decode(out);
       } catch {
         try {
-          decompressed = zlib.inflateRawSync(rawStream).toString("latin1");
+          const out = inflateRaw(rawStreamBytes);
+          decompressed = new TextDecoder("latin1").decode(out);
         } catch {
-          // Stream might be uncompressed plain text
-          decompressed = rawStream.toString("latin1");
+          decompressed = rawStreamStr;
         }
       }
 
       if (!decompressed) continue;
 
-      // Check if stream contains text operators (BT = Begin Text, ET = End Text, Tj/TJ = Show Text)
       if (
         decompressed.includes("BT") ||
         decompressed.includes("Tj") ||
         decompressed.includes("TJ") ||
         decompressed.includes("T*")
       ) {
-        // Extract BT ... ET blocks
         const btBlocks = decompressed.match(/BT[\s\S]*?ET/g) || [decompressed];
-
         for (const block of btBlocks) {
           let blockText = "";
 
-          // 1. Match literal string operator: (text) Tj or ' or "
+          // Match literal string operator: (text) Tj or ' or "
           const singleTjRegex = /\(([\s\S]*?)\)\s*(?:Tj|'|")/g;
           let tjMatch: RegExpExecArray | null;
           while ((tjMatch = singleTjRegex.exec(block)) !== null) {
             const decoded = decodePdfLiteralString(tjMatch[1]);
-            if (decoded.trim()) {
-              blockText += decoded + " ";
-            }
+            if (decoded.trim()) blockText += decoded + " ";
           }
 
-          // 2. Match hex string operator: <hex> Tj
+          // Match hex string operator: <hex> Tj
           const hexTjRegex = /<([0-9a-fA-F\s]+)>\s*(?:Tj|'|")/g;
           let hexMatch: RegExpExecArray | null;
           while ((hexMatch = hexTjRegex.exec(block)) !== null) {
             const decoded = decodePdfHexString(hexMatch[1]);
-            if (decoded.trim()) {
-              blockText += decoded + " ";
-            }
+            if (decoded.trim()) blockText += decoded + " ";
           }
 
-          // 3. Match array string operator: [(t) 10 (e) 20 (x)] TJ or [<0048> 20 <0065>] TJ
+          // Match array string operator: [(t) 10 (e) 20 (x)] TJ
           const arrayTjRegex = /\[([\s\S]*?)\]\s*TJ/g;
           let arrMatch: RegExpExecArray | null;
           while ((arrMatch = arrayTjRegex.exec(block)) !== null) {
             const arrayInner = arrMatch[1];
-            // Match both (str) and <hex> tokens inside the array
             const tokenRegex = /\(([\s\S]*?)\)|<([0-9a-fA-F\s]+)>/g;
             let tokenMatch: RegExpExecArray | null;
             let innerText = "";
-
             while ((tokenMatch = tokenRegex.exec(arrayInner)) !== null) {
               if (tokenMatch[1] !== undefined) {
                 innerText += decodePdfLiteralString(tokenMatch[1]);
@@ -133,10 +130,7 @@ export function extractPdfTextFromBuffer(buffer: Buffer): string {
                 innerText += decodePdfHexString(tokenMatch[2]);
               }
             }
-
-            if (innerText.trim()) {
-              blockText += innerText + " ";
-            }
+            if (innerText.trim()) blockText += innerText + " ";
           }
 
           if (blockText.trim()) {
@@ -152,22 +146,25 @@ export function extractPdfTextFromBuffer(buffer: Buffer): string {
       let directMatch: RegExpExecArray | null;
       while ((directMatch = directRegex.exec(rawContent)) !== null) {
         const decoded = decodePdfLiteralString(directMatch[1]);
-        if (decoded.trim()) {
-          extractedLines.push(decoded.trim());
-        }
+        if (decoded.trim()) extractedLines.push(decoded.trim());
       }
     }
 
-    // Clean up extracted text
-    const result = extractedLines
+    return extractedLines
       .join("\n")
       .replace(/[ \t]+/g, " ")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
-
-    return result;
   } catch (err: any) {
-    console.warn("PDF stream parsing encountered an error:", err.message);
+    console.warn("ArrayBuffer PDF parsing error:", err.message);
     return "";
   }
+}
+
+/**
+ * Extracts readable text from a Node.js Buffer.
+ */
+export function extractPdfTextFromBuffer(buffer: Buffer): string {
+  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  return extractPdfTextFromArrayBuffer(arrayBuffer);
 }

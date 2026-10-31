@@ -44,6 +44,7 @@ import { EditQuestionDialog } from "@/components/EditQuestionDialog";
 import { Portal } from "@/components/Portal";
 import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
+import { extractPdfTextFromArrayBuffer } from "@/lib/pdf-extractor";
 
 function ModuleDetailContent() {
   const { lang, t } = useLanguage();
@@ -73,8 +74,9 @@ function ModuleDetailContent() {
     file: File;
     name: string;
     sizeStr: string;
-    base64: string;
+    base64?: string;
     mimeType: string;
+    clientExtractedText?: string;
   } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -87,7 +89,7 @@ function ModuleDetailContent() {
     return 5;
   });
 
-  const handleFileSelected = (file: File) => {
+  const handleFileSelected = async (file: File) => {
     setUploadError(null);
     setUploadSuccess(null);
 
@@ -100,26 +102,44 @@ function ModuleDetailContent() {
     const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
     const sizeStr = file.size > 1024 * 1024 ? `${sizeMB} MB` : `${Math.round(file.size / 1024)} KB`;
 
-    if (file.size > 4.2 * 1024 * 1024) {
-      setUploadError(
-        lang === "de"
-          ? `Die Datei "${file.name}" ist ${sizeStr} groß. Der Server erlaubt maximal 4 MB pro Upload. Bitte komprimiere das PDF kurz oder lade einzelne Foliensätze hoch.`
-          : `File "${file.name}" is ${sizeStr}. Maximum upload size is 4 MB. Please compress the PDF.`
-      );
+    // 1. Client-side PDF extraction: Extracts text directly in browser in milliseconds
+    let clientText = "";
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (isPdf) {
+      try {
+        const ab = await file.arrayBuffer();
+        clientText = extractPdfTextFromArrayBuffer(ab);
+      } catch (err: any) {
+        console.warn("Client PDF extraction:", err);
+      }
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const base64 = e.target?.result as string;
+    // 2. Only read base64 if file is under 3.8 MB (prevents Vercel 4.5 MB request payload crash)
+    if (file.size < 3.8 * 1024 * 1024) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64 = e.target?.result as string;
+        setUploadedFile({
+          file,
+          name: file.name,
+          sizeStr,
+          base64,
+          mimeType: file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg"),
+          clientExtractedText: clientText,
+        });
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // Large file: rely on clientExtractedText without sending heavy 5 MB binary to serverless function
       setUploadedFile({
         file,
         name: file.name,
         sizeStr,
-        base64,
-        mimeType: file.type || (file.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg"),
+        base64: undefined,
+        mimeType: file.type || "application/pdf",
+        clientExtractedText: clientText,
       });
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   // Trainer & Quiz Modal States
@@ -209,11 +229,14 @@ function ModuleDetailContent() {
       return;
     }
 
-    if (uploadedFile && uploadedFile.file.size > 4.2 * 1024 * 1024) {
+    const effectiveText = docText.trim() || uploadedFile?.clientExtractedText || undefined;
+
+    // Check if large file has no text
+    if (uploadedFile && uploadedFile.file.size > 3.8 * 1024 * 1024 && !effectiveText) {
       setUploadError(
         lang === "de"
-          ? "Die Datei ist größer als 4 MB (Vercel-Uploadgrenze). Bitte komprimiere die Datei oder teile sie in Abschnitte auf."
-          : "File exceeds the 4 MB upload limit. Please compress it or split into parts."
+          ? "Dieses PDF ist größer als 3.8 MB und enthält keinen lesbaren Text (reine Scans). Bitte teile es in kleinere Abschnitte auf oder nutze Notizen."
+          : "This PDF exceeds 3.8 MB and contains no readable text. Please split it into smaller parts."
       );
       return;
     }
@@ -236,7 +259,7 @@ function ModuleDetailContent() {
           fileName: uploadedFile?.name,
           fileBase64: uploadedFile?.base64,
           mimeType: uploadedFile?.mimeType,
-          textContent: docText.trim() || undefined,
+          textContent: effectiveText,
           apiKey: storedKey,
           provider: storedProvider,
         }),
@@ -837,6 +860,11 @@ function ModuleDetailContent() {
                               </p>
                               <p className="text-[10px] text-slate-500">
                                 {uploadedFile.sizeStr} • {uploadedFile.mimeType.includes("pdf") ? "PDF Dokument" : "Folie / Bild"}
+                                {uploadedFile.clientExtractedText ? (
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-1">
+                                    • ✓ {uploadedFile.clientExtractedText.length} Zeichen Text erkannt
+                                  </span>
+                                ) : null}
                               </p>
                             </div>
                           </div>
@@ -1154,69 +1182,105 @@ function ModuleDetailContent() {
                     Hier solltest du dich vertiefen (Schwachstellen-Radar)
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Die 3 Themengebiete mit der geringsten Klausurreife in diesem Fach.
+                    {moduleData.weakestTopics && moduleData.weakestTopics.length > 0
+                      ? (lang === "de"
+                          ? `Die ${moduleData.weakestTopics.length} Themengebiete mit der geringsten Klausurreife in "${moduleData.name}".`
+                          : `Topics with lowest mastery in "${moduleData.name}".`)
+                      : (lang === "de"
+                          ? `Individuelle Themenerkennung für "${moduleData.name}".`
+                          : `Topic overview for "${moduleData.name}".`)}
                   </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                {moduleData.weakestTopics?.map((topic: any) => {
-                  const mastery = Math.round(topic.masteryScore);
-                  return (
-                    <div
-                      key={topic.id}
-                      className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex flex-col justify-between space-y-4"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between text-xs mb-2">
-                          <span className="font-bold text-slate-900 dark:text-white line-clamp-1">
-                            {topic.name}
-                          </span>
-                          <span
-                            className={`font-black px-2 py-0.5 rounded-full text-[11px] ${
-                              mastery < 50
-                                ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-                                : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-                            }`}
+              {moduleData.weakestTopics && moduleData.weakestTopics.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                  {moduleData.weakestTopics.map((topic: any) => {
+                    const mastery = Math.round(topic.masteryScore);
+                    return (
+                      <div
+                        key={topic.id}
+                        className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex flex-col justify-between space-y-4"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between text-xs mb-2">
+                            <span className="font-bold text-slate-900 dark:text-white line-clamp-1">
+                              {topic.name}
+                            </span>
+                            <span
+                              className={`font-black px-2 py-0.5 rounded-full text-[11px] ${
+                                mastery < 50
+                                  ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                              }`}
+                            >
+                              {mastery}% Reife
+                            </span>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                mastery < 50 ? "bg-rose-500" : "bg-amber-500"
+                              }`}
+                              style={{ width: `${Math.max(5, mastery)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                          <button
+                            type="button"
+                            onClick={() => setActiveSummaryTopic({ id: topic.id, name: topic.name })}
+                            className="w-full py-2 px-3 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 flex items-center justify-center gap-1.5 transition-colors"
                           >
-                            {mastery}% Reife
-                          </span>
-                        </div>
+                            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                            {lang === "de" ? "Zusammenfassung generieren" : "Generate Summary"}
+                          </button>
 
-                        {/* Progress Bar */}
-                        <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              mastery < 50 ? "bg-rose-500" : "bg-amber-500"
-                            }`}
-                            style={{ width: `${Math.max(5, mastery)}%` }}
-                          />
+                          <button
+                            type="button"
+                            onClick={() => handleStartGapTraining(topic.id)}
+                            className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                            {lang === "de" ? "Lücke schließen (5 Fragen)" : "Close Gap (5 Questions)"}
+                          </button>
                         </div>
                       </div>
-
-                      <div className="grid grid-cols-1 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
-                        <button
-                          type="button"
-                          onClick={() => setActiveSummaryTopic({ id: topic.id, name: topic.name })}
-                          className="w-full py-2 px-3 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 flex items-center justify-center gap-1.5 transition-colors"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                          Zusammenfassung generieren
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleStartGapTraining(topic.id)}
-                          className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all"
-                        >
-                          <Play className="w-3.5 h-3.5" />
-                          Lücke schließen (5 Fragen)
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-8 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto">
+                    <BookOpen className="w-6 h-6" />
+                  </div>
+                  <div className="max-w-md mx-auto">
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+                      {lang === "de"
+                        ? `Noch keine Themengebiete für "${moduleData.name}" vorhanden`
+                        : `No topics created yet for "${moduleData.name}"`}
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                      {lang === "de"
+                        ? `Lade in Tab 1 Vorlesungsfolien oder eine Altklausur für "${moduleData.name}" hoch. Die KI erkennt den Stoff und strukturiert automatisch deine Schwerpunkte und Schwachstellen speziell für dieses Fach!`
+                        : `Upload lecture slides or a past exam for "${moduleData.name}" in Tab 1. The AI will analyze the material and organize your topics automatically.`}
+                    </p>
+                  </div>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("documents")}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      {lang === "de" ? "Zu Tab 1: Unterlagen hochladen" : "Go to Tab 1: Upload Materials"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Training Starten & Fragentypen Launcher */}
