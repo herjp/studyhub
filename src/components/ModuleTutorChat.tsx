@@ -16,7 +16,11 @@ import {
   HelpCircle,
   ArrowRight,
   MessageSquareText,
-  BookmarkCheck,
+  Layers,
+  Key,
+  ExternalLink,
+  Cpu,
+  ShieldCheck,
 } from "lucide-react";
 
 export interface ChatMessage {
@@ -38,6 +42,87 @@ interface ModuleTutorChatProps {
   onCloseDrawer?: () => void;
 }
 
+/**
+ * Renders Mermaid diagrams as responsive, interactive SVG graphics.
+ */
+function MermaidRenderer({ chart }: { chart: string }) {
+  const [svg, setSvg] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const renderId = useRef(`m_${Math.random().toString(36).substring(2, 9)}`);
+
+  useEffect(() => {
+    let isMounted = true;
+    const renderChart = async () => {
+      try {
+        const mermaidModule = await import("mermaid");
+        const mermaid = mermaidModule.default;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: "neutral",
+          securityLevel: "loose",
+          fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
+        });
+        const cleanCode = chart.trim();
+        const id = `mermaid_${renderId.current}_${Date.now()}`;
+        const { svg } = await mermaid.render(id, cleanCode);
+        if (isMounted) {
+          setSvg(svg);
+          setError(null);
+        }
+      } catch (err: any) {
+        console.warn("Mermaid render error:", err);
+        if (isMounted) {
+          setError(err.message || "Fehler beim Rendern des Diagramms");
+        }
+      }
+    };
+    renderChart();
+    return () => {
+      isMounted = false;
+    };
+  }, [chart]);
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(chart);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (error) {
+    return (
+      <div className="my-3 p-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-xs overflow-x-auto text-slate-700 dark:text-slate-300">
+        <div className="text-[10px] text-amber-500 font-bold mb-1">Diagramm-Code (Mermaid):</div>
+        <pre>{chart}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="my-3 rounded-2xl border border-indigo-200/80 dark:border-indigo-900/60 bg-gradient-to-b from-slate-50/80 to-white dark:from-slate-800/80 dark:to-slate-900/90 p-3 sm:p-4 shadow-xs overflow-hidden">
+      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/60 dark:border-slate-700/60 text-xs">
+        <div className="flex items-center gap-1.5 font-bold text-indigo-700 dark:text-indigo-300">
+          <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+          <span>Visuelles Modell / Struktur-Diagramm</span>
+        </div>
+        <button
+          onClick={handleCopyCode}
+          className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+        >
+          {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+          <span>{copied ? "Kopiert" : "Mermaid Code"}</span>
+        </button>
+      </div>
+      <div
+        ref={containerRef}
+        className="w-full overflow-x-auto flex justify-center py-2 min-h-[100px] items-center [&_svg]:max-w-full [&_svg]:h-auto text-slate-800 dark:text-slate-200"
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+    </div>
+  );
+}
+
 export function ModuleTutorChat({
   moduleId,
   moduleName,
@@ -50,8 +135,41 @@ export function ModuleTutorChat({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Quick API Key setup state
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [keyToast, setKeyToast] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const key =
+      localStorage.getItem("studyhub_api_key_gemini") ||
+      localStorage.getItem("studyhub_api_key");
+    if (key && key.trim().length > 5) {
+      setHasApiKey(true);
+    }
+  }, []);
+
+  const handleSaveApiKey = () => {
+    const cleanKey = apiKeyInput.trim();
+    if (!cleanKey) return;
+    localStorage.setItem("studyhub_api_key_gemini", cleanKey);
+    localStorage.setItem("studyhub_api_key", cleanKey);
+    localStorage.setItem("studyhub_ai_provider", "gemini");
+    setHasApiKey(true);
+    setShowKeyModal(false);
+    setApiKeyInput("");
+    setKeyToast(
+      lang === "de"
+        ? "✓ Google Gemini API-Schlüssel erfolgreich gespeichert! Ab sofort antwortet Gemini 2.5 Flash."
+        : "✓ Google Gemini API key saved successfully! Gemini 2.5 Flash is now active."
+    );
+    setTimeout(() => setKeyToast(null), 4000);
+  };
 
   // Auto-scroll to bottom of chat
   const scrollToBottom = () => {
@@ -201,7 +319,6 @@ export function ModuleTutorChat({
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
-      // Re-focus input
       setTimeout(() => textareaRef.current?.focus(), 100);
     }
   };
@@ -233,53 +350,155 @@ export function ModuleTutorChat({
     }
   };
 
-  // Helper to render formatted text with basic markdown formatting
-  const renderFormattedText = (text: string) => {
-    const paragraphs = text.split(/\n\s*\n/);
-    return (
-      <div className="space-y-3 leading-relaxed">
-        {paragraphs.map((para, idx) => {
-          const lines = para.split("\n");
-          return (
-            <p key={idx} className="text-xs sm:text-sm text-slate-800 dark:text-slate-200">
-              {lines.map((line, lIdx) => {
-                // Check if line is a bullet
-                const isBullet = line.trim().startsWith("- ") || line.trim().startsWith("• ");
-                const cleanLine = isBullet ? line.trim().replace(/^[-•]\s*/, "") : line;
+  const renderInlineMarkdown = (content: string) => {
+    const parts = content.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+    return parts.map((part, idx) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={idx} className="font-bold text-slate-900 dark:text-white">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return (
+          <code
+            key={idx}
+            className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700/80 font-mono text-[11px] text-indigo-600 dark:text-indigo-300 border border-slate-200 dark:border-slate-600"
+          >
+            {part.slice(1, -1)}
+          </code>
+        );
+      }
+      return part;
+    });
+  };
 
-                // Split bold text (**text**)
-                const parts = cleanLine.split(/(\*\*[^*]+\*\*)/g);
+  const renderMarkdownSection = (sectionText: string, keyPrefix: string) => {
+    const paragraphs = sectionText.split(/\n\s*\n/);
+    return (
+      <div key={keyPrefix} className="space-y-2.5">
+        {paragraphs.map((para, pIdx) => {
+          const trimmed = para.trim();
+          if (!trimmed) return null;
+
+          // H1 Headings
+          if (trimmed.startsWith("# ")) {
+            return (
+              <h1
+                key={pIdx}
+                className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white mt-4 mb-2 pb-1 border-b border-slate-200 dark:border-slate-700"
+              >
+                {renderInlineMarkdown(trimmed.replace(/^#\s+/, ""))}
+              </h1>
+            );
+          }
+
+          // H2 Headings
+          if (trimmed.startsWith("## ")) {
+            return (
+              <h2
+                key={pIdx}
+                className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-3.5 mb-1.5"
+              >
+                {renderInlineMarkdown(trimmed.replace(/^##\s+/, ""))}
+              </h2>
+            );
+          }
+
+          // H3 Headings
+          if (trimmed.startsWith("### ")) {
+            return (
+              <h3
+                key={pIdx}
+                className="text-xs sm:text-sm font-bold text-indigo-700 dark:text-indigo-400 mt-3 mb-1"
+              >
+                {renderInlineMarkdown(trimmed.replace(/^###\s+/, ""))}
+              </h3>
+            );
+          }
+
+          // Horizontal rule
+          if (trimmed === "---" || trimmed === "***") {
+            return <hr key={pIdx} className="my-3 border-slate-200 dark:border-slate-700" />;
+          }
+
+          // Blockquote / Tip
+          if (trimmed.startsWith("> ")) {
+            return (
+              <div
+                key={pIdx}
+                className="p-3 my-2 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border-l-4 border-indigo-500 text-xs text-slate-700 dark:text-slate-300 italic"
+              >
+                {renderInlineMarkdown(trimmed.replace(/^>\s*/, ""))}
+              </div>
+            );
+          }
+
+          // Regular paragraph or bullet list
+          const lines = trimmed.split("\n");
+          return (
+            <div key={pIdx} className="text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+              {lines.map((line, lIdx) => {
+                const isBullet =
+                  line.trim().startsWith("- ") ||
+                  line.trim().startsWith("• ") ||
+                  line.trim().startsWith("* ");
+                const cleanLine = isBullet ? line.trim().replace(/^[-•*]\s*/, "") : line;
 
                 return (
-                  <span key={lIdx} className={isBullet ? "block pl-4 relative my-1" : "block"}>
+                  <span
+                    key={lIdx}
+                    className={
+                      isBullet
+                        ? "block pl-4 relative my-1 text-slate-700 dark:text-slate-200"
+                        : "block my-0.5 leading-relaxed"
+                    }
+                  >
                     {isBullet && (
                       <span className="absolute left-0 text-indigo-500 font-bold">•</span>
                     )}
-                    {parts.map((part, pIdx) => {
-                      if (part.startsWith("**") && part.endsWith("**")) {
-                        return (
-                          <strong
-                            key={pIdx}
-                            className="font-bold text-slate-900 dark:text-white"
-                          >
-                            {part.slice(2, -2)}
-                          </strong>
-                        );
-                      }
-                      return part;
-                    })}
+                    {renderInlineMarkdown(cleanLine)}
                   </span>
                 );
               })}
-            </p>
+            </div>
           );
         })}
       </div>
     );
   };
 
+  const renderFormattedText = (text: string) => {
+    const mermaidRegex = /```mermaid\s*([\s\S]*?)```/g;
+    const segments: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = mermaidRegex.exec(text)) !== null) {
+      const textBefore = text.slice(lastIndex, match.index);
+      if (textBefore.trim()) {
+        segments.push(renderMarkdownSection(textBefore, `pre_${lastIndex}`));
+      }
+      const chartCode = match[1];
+      segments.push(<MermaidRenderer key={`chart_${match.index}`} chart={chartCode} />);
+      lastIndex = match.index + match[0].length;
+    }
+
+    const remainingText = text.slice(lastIndex);
+    if (remainingText.trim()) {
+      segments.push(renderMarkdownSection(remainingText, `post_${lastIndex}`));
+    }
+
+    return <div className="space-y-3 leading-relaxed">{segments}</div>;
+  };
+
   return (
-    <div className={`flex flex-col h-full bg-white dark:bg-slate-900 ${isOpenAsDrawer ? "p-0" : "rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm"}`}>
+    <div
+      className={`flex flex-col h-full bg-white dark:bg-slate-900 ${
+        isOpenAsDrawer ? "p-0" : "rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm"
+      }`}
+    >
       {/* Header */}
       <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/50 backdrop-blur-xs">
         <div className="flex items-center gap-3">
@@ -287,18 +506,37 @@ export function ModuleTutorChat({
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
                 {lang === "de" ? "KI-Vorlesungs-Tutor" : "AI Lecture Tutor"}
               </h2>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                 {documentsCount} {lang === "de" ? "Dokumente im Kontext" : "Docs in context"}
               </span>
+
+              {hasApiKey ? (
+                <button
+                  onClick={() => setShowKeyModal((prev) => !prev)}
+                  title="Gemini API Key verwalten"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer"
+                >
+                  <Cpu className="w-3 h-3 text-indigo-500" />
+                  <span>Gemini AI aktiv</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowKeyModal((prev) => !prev)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                >
+                  <Key className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                  <span>{lang === "de" ? "Gemini Key eingeben" : "Add Gemini Key"}</span>
+                </button>
+              )}
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               {lang === "de"
-                ? "Frage alles zu deinen Vorlesungsfolien, Skripten & Altklausuren"
-                : "Ask anything grounded in your lecture slides & past exams"}
+                ? "Frage alles zu deinen Vorlesungsfolien, Skripten & Altklausuren (inkl. Diagrammen)"
+                : "Ask anything grounded in your lecture slides & past exams (including diagrams)"}
             </p>
           </div>
         </div>
@@ -324,6 +562,71 @@ export function ModuleTutorChat({
         </div>
       </div>
 
+      {/* Quick API Key Dropdown Banner */}
+      {showKeyModal && (
+        <div className="p-3.5 bg-indigo-50/90 dark:bg-slate-800/95 border-b border-indigo-200 dark:border-slate-700 animate-in slide-in-from-top duration-150">
+          <div className="max-w-xl mx-auto space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                <Key className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>
+                  {lang === "de"
+                    ? "Kostenlosen Google Gemini API-Schlüssel hinterlegen"
+                    : "Add free Google Gemini API Key"}
+                </span>
+              </div>
+              <button
+                onClick={() => setShowKeyModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug">
+              {lang === "de"
+                ? "Mit deinem Gemini-Key erhältst du unbegrenzte, frei formulierende KI-Antworten in Echtzeit. Dein Key bleibt lokal in deinem Browser gespeichert."
+                : "With your Gemini key, you unlock unlimited live conversational AI answers. Stored locally in your browser."}
+            </p>
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder="AIzaSy..."
+                className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                onClick={handleSaveApiKey}
+                disabled={!apiKeyInput.trim()}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
+              >
+                {lang === "de" ? "Speichern" : "Save"}
+              </button>
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 pt-0.5">
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                <span>Google AI Studio Key holen (dauert 30 Sek., kostenlos)</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <span>Funktioniert auch ohne Key mit der lokalen Wissens-Engine</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Toast */}
+      {keyToast && (
+        <div className="px-4 py-2 bg-emerald-50 dark:bg-emerald-950/60 border-b border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-150">
+          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <span>{keyToast}</span>
+        </div>
+      )}
+
       {/* Message Stream */}
       <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6">
         {/* Welcome State when empty */}
@@ -341,8 +644,8 @@ export function ModuleTutorChat({
               </h3>
               <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
                 {lang === "de"
-                  ? "Ich antworte fundiert anhand deiner hochgeladenen Dokumente, erkläre schwierige Vorlesungsthemen mit Analogien und gebe dir wertvolle Prüfer-Tipps für die Klausur."
-                  : "I provide clear explanations grounded in your uploaded course materials, use vivid analogies, and share practical exam tips."}
+                  ? "Ich antworte fundiert anhand deiner hochgeladenen Dokumente, erstelle visuelle Diagramme und gebe dir wertvolle Prüfer-Tipps für die Klausur."
+                  : "I provide clear explanations grounded in your uploaded course materials, render visual diagrams, and share practical exam tips."}
               </p>
             </div>
 
@@ -426,7 +729,7 @@ export function ModuleTutorChat({
                   </button>
                 </div>
 
-                {/* Formatted Text Content */}
+                {/* Formatted Text Content with Mermaid Diagrams */}
                 {renderFormattedText(msg.content)}
 
                 {/* Exam Tip Callout */}
@@ -491,12 +794,12 @@ export function ModuleTutorChat({
             <Loader2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 animate-spin shrink-0" />
             <div className="space-y-0.5">
               <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                {lang === "de" ? "KI liest Vorlesungsunterlagen..." : "AI is analyzing course materials..."}
+                {lang === "de" ? "KI analysiert Vorlesungsunterlagen..." : "AI is analyzing course materials..."}
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 {lang === "de"
-                  ? "RAG durchsucht Folien und formuliert eine anschauliche Erklärung."
-                  : "RAG is synthesizing slides into an intuitive explanation."}
+                  ? "RAG generiert strukturierte Erklärung & Diagramme."
+                  : "RAG is synthesizing slides into structured concepts & diagrams."}
               </p>
             </div>
           </div>
@@ -517,8 +820,8 @@ export function ModuleTutorChat({
             disabled={isLoading}
             placeholder={
               lang === "de"
-                ? "Frage etwas zur Vorlesung (z. B. 'Erkläre mir das CQRS-Muster', 'Was ist der Unterschied zwischen A und B?')..."
-                : "Ask anything about your lecture (e.g. 'Explain CQRS pattern', 'What is the difference between A and B?')..."
+                ? "Frage etwas zur Vorlesung (z. B. 'Erkläre mir die wichtigsten Kernkonzepte', 'Was bedeutet Ambidexterie?')..."
+                : "Ask anything about your lecture (e.g. 'Explain the core concepts', 'What is Ambidexterity?')..."
             }
             className="flex-1 bg-transparent border-0 resize-none p-1.5 text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden leading-relaxed"
           />

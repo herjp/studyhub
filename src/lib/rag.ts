@@ -107,27 +107,56 @@ export async function getPastExamStyleContext(moduleId: string): Promise<string>
 export async function getModuleKnowledgeContext(
   moduleId: string,
   query: string
-): Promise<{ contextText: string; sources: string[]; totalDocuments: number }> {
-  const documents = await prisma.document.findMany({
-    where: {
-      moduleId,
-      isIndexed: true,
-      parsedText: { not: null },
-    },
-    select: {
-      id: true,
-      title: true,
-      category: true,
-      parsedText: true,
-    },
-  });
+): Promise<{
+  contextText: string;
+  sources: string[];
+  totalDocuments: number;
+  topics: { id: string; name: string; summary: string | null }[];
+}> {
+  const [documents, moduleRecord] = await Promise.all([
+    prisma.document.findMany({
+      where: {
+        moduleId,
+        isIndexed: true,
+        parsedText: { not: null },
+      },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        parsedText: true,
+      },
+    }),
+    prisma.module.findUnique({
+      where: { id: moduleId },
+      include: {
+        topics: {
+          select: { id: true, name: true, summary: true },
+        },
+      },
+    }),
+  ]);
+
+  const topics = moduleRecord?.topics || [];
 
   if (!documents.length) {
-    return { contextText: "", sources: [], totalDocuments: 0 };
+    return { contextText: "", sources: [], totalDocuments: 0, topics };
   }
 
-  // 1. Search for specific relevant paragraphs (top 6 chunks)
-  const relevantChunks = await searchModuleDocuments(moduleId, query, 6);
+  // Check if query is broad (asking for overview, core concepts, or summary)
+  const isBroadQuery =
+    /\b(kernkonzept|überblick|zusammenfass|themen|einführung|grundlagen|übersicht|allgemein|worum geht|summary|overview|concept|core)\b/i.test(
+      query
+    );
+
+  // If broad, expand search query with topic names to pull representative concept passages
+  let effectiveQuery = query;
+  if (isBroadQuery && topics.length > 0) {
+    effectiveQuery = `${query} ${topics.map((t) => t.name).join(" ")}`;
+  }
+
+  // 1. Search for specific relevant paragraphs (top 8 chunks)
+  const relevantChunks = await searchModuleDocuments(moduleId, effectiveQuery, 8);
   const sourcesSet = new Set<string>();
   const chunkSnippets: string[] = [];
 
@@ -136,20 +165,10 @@ export async function getModuleKnowledgeContext(
     chunkSnippets.push(`[Auszug aus: "${chunk.documentTitle}" (${chunk.category})]\n${chunk.textSnippet}`);
   }
 
-  // 2. Document overview list so the AI has a birds-eye view of all documents
-  const docOverviews = documents
-    .map(
-      (d) =>
-        `• "${d.title}" (${d.category}, ca. ${Math.round((d.parsedText?.length || 0) / 1000)}k Zeichen)`
-    )
-    .join("\n");
-
-  const overviewSection = `VERFÜGBARE DOKUMENTE IM MODUL (${documents.length}):\n${docOverviews}`;
-
-  // 3. If query is broad or few chunks matched, also include document introductory snippets
+  // 2. If query is broad or few chunks matched, also include document introductory snippets
   const broadSnippets: string[] = [];
-  if (relevantChunks.length < 3) {
-    for (const doc of documents.slice(0, 5)) {
+  if (relevantChunks.length < 4) {
+    for (const doc of documents.slice(0, 6)) {
       if (doc.parsedText) {
         sourcesSet.add(doc.title);
         broadSnippets.push(`[Überblick aus: "${doc.title}"]\n${doc.parsedText.slice(0, 800)}...`);
@@ -158,11 +177,27 @@ export async function getModuleKnowledgeContext(
   }
 
   const combinedSnippets = [...chunkSnippets, ...broadSnippets].join("\n\n---\n\n");
-  const contextText = `${overviewSection}\n\nRELEVANTE INHALTLICHE AUSZÜGE:\n${combinedSnippets}`;
+
+  // 3. Document overview list placed as reference at the end (not blocking the content)
+  const docOverviews = documents
+    .map(
+      (d) =>
+        `• "${d.title}" (${d.category}, ca. ${Math.round((d.parsedText?.length || 0) / 1000)}k Zeichen)`
+    )
+    .join("\n");
+
+  const topicSummaryHeader =
+    topics.length > 0
+      ? `MODUL-THEMEN:\n${topics.map((t) => `• ${t.name}${t.summary ? `: ${t.summary}` : ""}`).join("\n")}\n\n`
+      : "";
+
+  // Put substantial content at the very start!
+  const contextText = `${topicSummaryHeader}RELEVANTE INHALTLICHE AUSZÜGE AUS DEINEN UNTERLAGEN:\n${combinedSnippets}\n\nVERFÜGBARE QUELLEN & DOKUMENTE IM MODUL (${documents.length}):\n${docOverviews}`;
 
   return {
     contextText,
     sources: Array.from(sourcesSet),
     totalDocuments: documents.length,
+    topics,
   };
 }
