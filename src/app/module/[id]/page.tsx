@@ -38,6 +38,7 @@ import {
   Files,
   Plus,
   X,
+  MessageSquareText,
 } from "lucide-react";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
 import { FahrschulBar } from "@/components/FahrschulBar";
@@ -46,6 +47,7 @@ import { ExamSessionModal, QuizQuestion } from "@/components/ExamSessionModal";
 import { TopicSummaryModal } from "@/components/TopicSummaryModal";
 import { EditModuleDialog } from "@/components/EditModuleDialog";
 import { EditQuestionDialog } from "@/components/EditQuestionDialog";
+import { ModuleTutorChat } from "@/components/ModuleTutorChat";
 import { AuthModal } from "@/components/AuthModal";
 import { Portal } from "@/components/Portal";
 import { formatGrade, formatEcts } from "@/lib/utils";
@@ -189,9 +191,10 @@ function ModuleDetailContent() {
   const moduleId = params.id as string;
 
   const initialTab = searchParams.get("tab") || "documents";
-  const [activeTab, setActiveTab] = useState<"documents" | "trainer" | "grade">(
+  const [activeTab, setActiveTab] = useState<"documents" | "trainer" | "tutor" | "grade">(
     initialTab as any
   );
+  const [isTutorDrawerOpen, setIsTutorDrawerOpen] = useState(false);
 
   const [moduleData, setModuleData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -1377,11 +1380,11 @@ function ModuleDetailContent() {
           </div>
         </div>
 
-        {/* 3 Tabs Navigation (Tab 1 -> Tab 2 -> Tab 3) */}
-        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 mb-6">
+        {/* Tabs Navigation (Tab 1 -> Tab 2 -> Tab 3 -> Tab 4) */}
+        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 mb-6 overflow-x-auto no-scrollbar">
           <button
             onClick={() => setActiveTab("documents")}
-            className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 sm:px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === "documents"
                 ? "border-indigo-600 text-indigo-600 dark:text-indigo-400"
                 : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
@@ -1396,7 +1399,7 @@ function ModuleDetailContent() {
 
           <button
             onClick={() => setActiveTab("trainer")}
-            className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 sm:px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === "trainer"
                 ? "border-indigo-600 text-indigo-600 dark:text-indigo-400"
                 : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
@@ -1410,15 +1413,30 @@ function ModuleDetailContent() {
           </button>
 
           <button
+            onClick={() => setActiveTab("tutor")}
+            className={`flex items-center gap-2 px-4 sm:px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === "tutor"
+                ? "border-indigo-600 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+            }`}
+          >
+            <MessageSquareText className="w-4 h-4" />
+            {t.tabTutorName}
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300">
+              {lang === "de" ? "Frag die Vorlesung" : "Q&A"}
+            </span>
+          </button>
+
+          <button
             onClick={() => setActiveTab("grade")}
-            className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+            className={`flex items-center gap-2 px-4 sm:px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === "grade"
                 ? "border-indigo-600 text-indigo-600 dark:text-indigo-400"
                 : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
           >
             <Award className="w-4 h-4" />
-            {t.tab3Name}
+            {t.tab4Name}
           </button>
         </div>
 
@@ -3041,7 +3059,20 @@ function ModuleDetailContent() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 3: NOTEN- & MODULABSCHLUSS */}
+        {/* TAB 3: KI-VORLESUNGS-TUTOR & DOKUMENTEN-CHAT */}
+        {/* ========================================================================= */}
+        {activeTab === "tutor" && (
+          <div className="h-[750px] max-h-[82vh]">
+            <ModuleTutorChat
+              moduleId={moduleData.id}
+              moduleName={moduleData.name}
+              documentsCount={moduleData.documents?.length || 0}
+            />
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 4: NOTEN- & MODULABSCHLUSS */}
         {/* ========================================================================= */}
         {activeTab === "grade" && (
           <div className="max-w-2xl mx-auto bg-white dark:bg-slate-900 rounded-3xl p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
@@ -3338,6 +3369,35 @@ function ModuleDetailContent() {
             fetchModule();
           }}
         />
+      )}
+
+      {/* Floating AI Tutor Quick Button */}
+      {moduleData && activeTab !== "tutor" && (
+        <button
+          type="button"
+          onClick={() => setIsTutorDrawerOpen(true)}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-600 text-white font-bold text-xs sm:text-sm shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 transition-all cursor-pointer border border-white/20"
+        >
+          <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+          <span>{lang === "de" ? "Frag die Vorlesung" : "Ask the Lecture"}</span>
+        </button>
+      )}
+
+      {/* Slide-over Drawer for Quick Tutor Q&A */}
+      {isTutorDrawerOpen && moduleData && (
+        <Portal>
+          <div className="fixed inset-0 z-[110] flex justify-end bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
+            <div className="w-full max-w-xl h-full bg-white dark:bg-slate-900 shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800 animate-in slide-in-from-right duration-200">
+              <ModuleTutorChat
+                moduleId={moduleData.id}
+                moduleName={moduleData.name}
+                documentsCount={moduleData.documents?.length || 0}
+                isOpenAsDrawer
+                onCloseDrawer={() => setIsTutorDrawerOpen(false)}
+              />
+            </div>
+          </div>
+        </Portal>
       )}
     </div>
   );

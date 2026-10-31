@@ -1,5 +1,18 @@
-import { searchModuleDocuments, getPastExamStyleContext } from "./rag";
+import { searchModuleDocuments, getPastExamStyleContext, getModuleKnowledgeContext } from "./rag";
 import { isValidPdfText, suggestDocumentTitleFromText } from "./pdf-extractor";
+
+export interface TutorChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface TutorResponse {
+  answer: string;
+  sources: string[];
+  examTip?: string;
+  followUpSuggestions: string[];
+  modelUsed: string;
+}
 
 export interface EvaluationResult {
   score: number;
@@ -1252,3 +1265,140 @@ Formatiere das Ergebnis in klarem Text/Markdown.`;
 }
 
 export const extractDocumentWithGemini = extractDocumentWithAI;
+
+/**
+ * Interactive AI Tutor: Answers student questions grounded across all uploaded module documents.
+ */
+export async function askModuleTutor(params: {
+  moduleId: string;
+  question: string;
+  chatHistory?: TutorChatMessage[];
+  apiKey?: string;
+  provider?: string;
+  lang?: "de" | "en" | string;
+}): Promise<TutorResponse> {
+  const { moduleId, question, chatHistory = [], apiKey, provider = "gemini", lang } = params;
+
+  // Detect language
+  const detectedEnglish =
+    lang === "en" ||
+    /\b(the|is|and|of|to|in|for|with|that|which|by|as|from|explain|what|how|why|difference)\b/i.test(question);
+  const isEnglish = lang === "de" ? false : detectedEnglish;
+
+  // Retrieve RAG knowledge across all indexed documents of the module
+  const { contextText, sources, totalDocuments } = await getModuleKnowledgeContext(moduleId, question);
+
+  if (totalDocuments === 0) {
+    return {
+      answer: isEnglish
+        ? "No lecture documents or slides have been uploaded to this module yet. Please upload your PDFs or photos in the 'Lecture Materials' tab so I can answer your questions based on them!"
+        : "Für dieses Modul sind noch keine Vorlesungsunterlagen hochgeladen. Bitte lade zuerst im Reiter 'Vorlesungsmaterialien & Unterlagen' deine Folien, Skripte oder Altklausuren hoch, damit ich deine Fragen fundiert beantworten kann!",
+      sources: [],
+      followUpSuggestions: isEnglish
+        ? ["How do I upload lecture slides?", "What file formats are supported?"]
+        : ["Wie lade ich Vorlesungsfolien hoch?", "Welche Dateiformate werden unterstützt?"],
+      modelUsed: "StudyHub Knowledge Engine",
+    };
+  }
+
+  const systemInstruction = `Du bist der persönliche KI-Vorlesungs-Tutor für dieses universitäre Studienmodul.
+Deine Mission: Beantworte Fragen der Studierenden zu ihren hochgeladenen Vorlesungsunterlagen, Folien und Altklausuren verständlich, didaktisch brillant, präzise und ermutigend.
+
+DIDAKTISCHE LEITLINIEN:
+1. DIDAKTISCH BRILLANT & ANSCHAULICH:
+   - Erkläre komplexe Sachverhalte klar und einleuchtend.
+   - Nutze treffende Alltags-Analogien ("Stell dir vor..."), um abstrakte Algorithmen, Architekturmuster oder Theorien begreifbar zu machen.
+   - Strukturiere Antworten mit klaren Absätzen, Zwischenüberschriften, Aufzählungspunkten und fetten Hervorhebungen.
+   - Wenn passend, erkläre Vor- und Nachteile, Trade-offs oder Schritt-für-Schritt-Abläufe.
+
+2. QUELLENTREUE:
+   - Beantworte die Frage primär auf Basis des bereitgestellten Vorlesungsmaterials.
+   - Gib im Feld "sources" die Dokumentnamen an, aus denen du dein Wissen bezogen hast.
+
+3. KLAUSUR-RELEVANZ & PRÜFER-TIPP:
+   - Gib im Feld "examTip" einen wertvollen Tipp: Worauf achten Dozenten bei diesem Thema in Prüfungen? Welche typische Klausurfalle oder Prüfungsfrage gibt es dazu?
+
+4. NÄCHSTE SCHRITTE / ANSCHLUSSFRAGEN:
+   - Schlage im Feld "followUpSuggestions" 2 bis 3 logische, vertiefende Anschlussfragen vor, die der Studierende per Klick als nächstes fragen könnte.
+
+5. SPRACHE:
+   - Wenn der Studierende auf ENGLISCH fragt (oder lang="en"), antworte vollständig auf ENGLISCH.
+   - Wenn auf DEUTSCH, antworte auf DEUTSCH.
+   - Fachbegriffe in beiden Sprachen (oder Denglisch) werden nahtlos verstanden.
+
+Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
+{
+  "answer": "Strukturierte, leicht verständliche und ausführliche Erklärung mit Absätzen, Beispielen und Hervorhebungen...",
+  "sources": ["Dokumentname 1", "Dokumentname 2"],
+  "examTip": "Typische Prüferfrage oder Klausurfalle zu diesem Thema...",
+  "followUpSuggestions": ["Anschlussfrage 1?", "Anschlussfrage 2?", "Anschlussfrage 3?"]
+}`;
+
+  // Format previous chat history if provided
+  let historySection = "";
+  if (chatHistory && chatHistory.length > 0) {
+    const formattedTurns = chatHistory
+      .slice(-6)
+      .map((m) => `${m.role === "user" ? "STUDIERENDER" : "TUTOR"}: ${m.content}`)
+      .join("\n\n");
+    historySection = `BISHERIGER GESPRÄCHSVERLAUF:\n${formattedTurns}\n\n`;
+  }
+
+  const userPrompt = `${historySection}AKTUELLE FRAGE DES STUDIERENDEN:
+${question}
+
+HOCHGELADENE VORLESUNGSMATERIALIEN & AUSZÜGE:
+${contextText}
+
+BEVORZUGTE SPRACHE: ${isEnglish ? "ENGLISH" : "GERMAN"}`;
+
+  // Try Universal AI Router if API key or provider is set
+  if (apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) {
+    try {
+      const { parsed, modelUsed } = await callUniversalAIJSON({
+        prompt: userPrompt,
+        systemInstruction,
+        provider,
+        apiKey,
+      });
+
+      const answer = parsed.answer || (typeof parsed === "string" ? parsed : "Erklärung abgeschlossen.");
+      const identifiedSources = Array.isArray(parsed.sources) && parsed.sources.length > 0
+        ? parsed.sources
+        : sources.slice(0, 3);
+      const examTip = parsed.examTip || undefined;
+      const followUpSuggestions = Array.isArray(parsed.followUpSuggestions) && parsed.followUpSuggestions.length > 0
+        ? parsed.followUpSuggestions
+        : (isEnglish
+            ? ["Can you give me a concrete example?", "What is a typical exam question on this?"]
+            : ["Kannst du mir dazu ein konkretes Alltagsbeispiel geben?", "Welche Klausuraufgabe könnte dazu gestellt werden?"]);
+
+      return {
+        answer,
+        sources: identifiedSources,
+        examTip,
+        followUpSuggestions,
+        modelUsed: `${provider.toUpperCase()} (${modelUsed})`,
+      };
+    } catch (err: any) {
+      console.warn(`KI tutor invocation with ${provider} failed, falling back to local:`, err.message);
+    }
+  }
+
+  // Local Knowledge Synthesizer (Fallback)
+  const answer = isEnglish
+    ? `### Summary based on your lecture materials\n\n${contextText.slice(0, 1500)}...\n\n*(Note: For conversational AI explanations and analogies, please configure a Gemini or OpenAI API key in the top settings.)*`
+    : `### Erklärung basierend auf deinen Vorlesungsunterlagen\n\n${contextText.slice(0, 1500)}...\n\n*(Hinweis: Für vertiefende interaktive Dialoge und anschauliche Alltagsanalogien hinterlege gerne einen Gemini- oder OpenAI-API-Schlüssel in den Einstellungen oben.)*`;
+
+  return {
+    answer,
+    sources: sources.slice(0, 3),
+    examTip: isEnglish
+      ? "Exam Tip: Professors often test definitions and boundary differences in written exams."
+      : "Klausur-Tipp: Achte bei diesem Thema in der Prüfung besonders auf präzise Definitionen und Vor-/Nachteile.",
+    followUpSuggestions: isEnglish
+      ? ["Tell me more about the core concepts", "What past exam questions exist?"]
+      : ["Erkläre mir mehr zu den Kernkonzepten", "Welche Altklausurfragen gibt es dazu?"],
+    modelUsed: isEnglish ? "Local Knowledge Engine" : "Lokale Wissens-Engine",
+  };
+}

@@ -100,3 +100,69 @@ export async function getPastExamStyleContext(moduleId: string): Promise<string>
 
   return `Hinterlegte Altklausuren des Dozenten zur Stiladaption:\n${excerpts}`;
 }
+
+/**
+ * Retrieves comprehensive context across all indexed documents of a module for general Q&A / Tutor chat.
+ */
+export async function getModuleKnowledgeContext(
+  moduleId: string,
+  query: string
+): Promise<{ contextText: string; sources: string[]; totalDocuments: number }> {
+  const documents = await prisma.document.findMany({
+    where: {
+      moduleId,
+      isIndexed: true,
+      parsedText: { not: null },
+    },
+    select: {
+      id: true,
+      title: true,
+      category: true,
+      parsedText: true,
+    },
+  });
+
+  if (!documents.length) {
+    return { contextText: "", sources: [], totalDocuments: 0 };
+  }
+
+  // 1. Search for specific relevant paragraphs (top 6 chunks)
+  const relevantChunks = await searchModuleDocuments(moduleId, query, 6);
+  const sourcesSet = new Set<string>();
+  const chunkSnippets: string[] = [];
+
+  for (const chunk of relevantChunks) {
+    sourcesSet.add(chunk.documentTitle);
+    chunkSnippets.push(`[Auszug aus: "${chunk.documentTitle}" (${chunk.category})]\n${chunk.textSnippet}`);
+  }
+
+  // 2. Document overview list so the AI has a birds-eye view of all documents
+  const docOverviews = documents
+    .map(
+      (d) =>
+        `• "${d.title}" (${d.category}, ca. ${Math.round((d.parsedText?.length || 0) / 1000)}k Zeichen)`
+    )
+    .join("\n");
+
+  const overviewSection = `VERFÜGBARE DOKUMENTE IM MODUL (${documents.length}):\n${docOverviews}`;
+
+  // 3. If query is broad or few chunks matched, also include document introductory snippets
+  const broadSnippets: string[] = [];
+  if (relevantChunks.length < 3) {
+    for (const doc of documents.slice(0, 5)) {
+      if (doc.parsedText) {
+        sourcesSet.add(doc.title);
+        broadSnippets.push(`[Überblick aus: "${doc.title}"]\n${doc.parsedText.slice(0, 800)}...`);
+      }
+    }
+  }
+
+  const combinedSnippets = [...chunkSnippets, ...broadSnippets].join("\n\n---\n\n");
+  const contextText = `${overviewSection}\n\nRELEVANTE INHALTLICHE AUSZÜGE:\n${combinedSnippets}`;
+
+  return {
+    contextText,
+    sources: Array.from(sourcesSet),
+    totalDocuments: documents.length,
+  };
+}
