@@ -34,6 +34,7 @@ import {
   AlertCircle,
   RefreshCw,
   Copy,
+  ArrowLeftRight,
 } from "lucide-react";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
 import { FahrschulBar } from "@/components/FahrschulBar";
@@ -581,7 +582,7 @@ function ModuleDetailContent() {
   };
 
   // Launch Training Sessions
-  const startTraining = (mode: "ALL" | "SC" | "MC" | "FREE_TEXT" | "DUE" | "SIMULATION") => {
+  const startTraining = (mode: "ALL" | "SC" | "MC" | "FREE_TEXT" | "MATCHING" | "DUE" | "SIMULATION") => {
     if (!moduleData?.questions?.length) {
       alert("Es sind noch keine Fragen für dieses Modul hinterlegt!");
       return;
@@ -599,6 +600,9 @@ function ModuleDetailContent() {
     } else if (mode === "MC") {
       filtered = filtered.filter((q) => q.type === "MULTIPLE_CHOICE");
       modeLabel = "Multiple Choice Training";
+    } else if (mode === "MATCHING") {
+      filtered = filtered.filter((q) => q.type === "MATCHING");
+      modeLabel = "Zuordnungs- & Abbildungstraining (Drag & Drop)";
     } else if (mode === "FREE_TEXT") {
       filtered = filtered.filter((q) => q.type === "FREE_TEXT");
       modeLabel = "Freitext-Klausurtraining mit KI-Korrektur";
@@ -630,8 +634,10 @@ function ModuleDetailContent() {
   // Question Management State
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
   const [questionSearch, setQuestionSearch] = useState("");
-  const [questionTypeFilter, setQuestionTypeFilter] = useState<"ALL" | "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT">("ALL");
+  const [questionTypeFilter, setQuestionTypeFilter] = useState<"ALL" | "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "MATCHING" | "FREE_TEXT">("ALL");
   const [isDeletingQuestionId, setIsDeletingQuestionId] = useState<string | null>(null);
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const filteredManageQuestions = (moduleData?.questions || []).filter((q: any) => {
     if (questionTypeFilter !== "ALL" && q.type !== questionTypeFilter) {
@@ -720,6 +726,7 @@ function ModuleDetailContent() {
         method: "DELETE",
       });
       if (res.ok) {
+        setSelectedQuestionIds((prev) => prev.filter((id) => id !== qId));
         fetchModule();
       } else {
         const data = await res.json();
@@ -729,6 +736,57 @@ function ModuleDetailContent() {
       alert(e.message || "Fehler beim Löschen.");
     } finally {
       setIsDeletingQuestionId(null);
+    }
+  };
+
+  const handleToggleSelectQuestion = (qId: string) => {
+    setSelectedQuestionIds((prev) =>
+      prev.includes(qId) ? prev.filter((id) => id !== qId) : [...prev, qId]
+    );
+  };
+
+  const handleSelectAllFiltered = () => {
+    const visibleIds = filteredManageQuestions.map((q: any) => q.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id: string) => selectedQuestionIds.includes(id));
+    if (allSelected) {
+      // Unselect visible questions
+      setSelectedQuestionIds((prev) => prev.filter((id) => !visibleIds.includes(id)));
+    } else {
+      // Select all visible questions
+      setSelectedQuestionIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const handleBulkDeleteQuestions = async () => {
+    if (selectedQuestionIds.length === 0) return;
+    const count = selectedQuestionIds.length;
+    if (
+      !confirm(
+        lang === "de"
+          ? `Möchtest du wirklich alle ${count} ausgewählten Prüfungsfragen unwiderruflich löschen?`
+          : `Are you sure you want to delete all ${count} selected questions?`
+      )
+    ) {
+      return;
+    }
+    setIsBulkDeleting(true);
+    try {
+      const res = await fetch("/api/trainer/questions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedQuestionIds }),
+      });
+      if (res.ok) {
+        setSelectedQuestionIds([]);
+        fetchModule();
+      } else {
+        const data = await res.json();
+        alert(data.error || "Fehler beim Löschen der ausgewählten Fragen.");
+      }
+    } catch (e: any) {
+      alert(e.message || "Fehler beim Löschen.");
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -1999,12 +2057,12 @@ function ModuleDetailContent() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 pt-2">
                 {/* Single Choice */}
                 <button
                   type="button"
                   onClick={() => startTraining("SC")}
-                  className="p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 bg-white dark:bg-slate-800/60 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 text-left transition-all group"
+                  className="p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 bg-white dark:bg-slate-800/60 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 text-left transition-all group cursor-pointer"
                 >
                   <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                     <CheckCircle2 className="w-5 h-5" />
@@ -2021,7 +2079,7 @@ function ModuleDetailContent() {
                 <button
                   type="button"
                   onClick={() => startTraining("MC")}
-                  className="p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 bg-white dark:bg-slate-800/60 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 text-left transition-all group"
+                  className="p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 bg-white dark:bg-slate-800/60 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 text-left transition-all group cursor-pointer"
                 >
                   <div className="w-9 h-9 rounded-xl bg-sky-50 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                     <Layers className="w-5 h-5" />
@@ -2034,11 +2092,28 @@ function ModuleDetailContent() {
                   </p>
                 </button>
 
+                {/* Zuordnung & Abbildungen (Matching Drag & Drop) */}
+                <button
+                  type="button"
+                  onClick={() => startTraining("MATCHING")}
+                  className="p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-amber-500 dark:hover:border-amber-400 bg-white dark:bg-slate-800/60 hover:bg-amber-50/30 dark:hover:bg-amber-950/20 text-left transition-all group cursor-pointer"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                    <ArrowLeftRight className="w-5 h-5" />
+                  </div>
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white mb-1">
+                    Zuordnung &amp; Schema
+                  </h4>
+                  <p className="text-[11px] text-slate-500 leading-tight">
+                    Begriffe &amp; Diagramme per Drag &amp; Drop den richtigen Stellen zuweisen.
+                  </p>
+                </button>
+
                 {/* Free Text */}
                 <button
                   type="button"
                   onClick={() => startTraining("FREE_TEXT")}
-                  className="p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 bg-white dark:bg-slate-800/60 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 text-left transition-all group"
+                  className="p-5 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 bg-white dark:bg-slate-800/60 hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 text-left transition-all group cursor-pointer"
                 >
                   <div className="w-9 h-9 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                     <Sparkles className="w-5 h-5" />
@@ -2055,7 +2130,7 @@ function ModuleDetailContent() {
                 <button
                   type="button"
                   onClick={() => startTraining("SIMULATION")}
-                  className="p-5 rounded-2xl border-2 border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700 text-left transition-all shadow-md group"
+                  className="p-5 rounded-2xl border-2 border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700 text-left transition-all shadow-md group cursor-pointer"
                 >
                   <div className="w-9 h-9 rounded-xl bg-white/20 text-white flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                     <GraduationCap className="w-5 h-5" />
@@ -2138,6 +2213,17 @@ function ModuleDetailContent() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => setQuestionTypeFilter("MATCHING")}
+                      className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                        questionTypeFilter === "MATCHING"
+                          ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm font-bold"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      Zuordnung
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setQuestionTypeFilter("FREE_TEXT")}
                       className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
                         questionTypeFilter === "FREE_TEXT"
@@ -2150,6 +2236,60 @@ function ModuleDetailContent() {
                   </div>
                 </div>
               </div>
+
+              {/* Batch Action Toolbar */}
+              {filteredManageQuestions.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      id="selectAllQuestions"
+                      checked={
+                        filteredManageQuestions.length > 0 &&
+                        filteredManageQuestions.every((q: any) => selectedQuestionIds.includes(q.id))
+                      }
+                      onChange={handleSelectAllFiltered}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <label
+                      htmlFor="selectAllQuestions"
+                      className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none"
+                    >
+                      {lang === "de" ? "Alle sichtbaren Fragen auswählen" : "Select all visible questions"}
+                    </label>
+                    {selectedQuestionIds.length > 0 && (
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                        {selectedQuestionIds.length} {lang === "de" ? "ausgewählt" : "selected"}
+                      </span>
+                    )}
+                  </div>
+
+                  {selectedQuestionIds.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedQuestionIds([])}
+                        className="px-2.5 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                      >
+                        {lang === "de" ? "Auswahl aufheben" : "Clear selection"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleBulkDeleteQuestions}
+                        disabled={isBulkDeleting}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        {isBulkDeleting
+                          ? (lang === "de" ? "Löscht..." : "Deleting...")
+                          : (lang === "de"
+                              ? `Ausgewählte löschen (${selectedQuestionIds.length})`
+                              : `Delete selected (${selectedQuestionIds.length})`)}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Questions List */}
               {filteredManageQuestions.length === 0 ? (
@@ -2172,13 +2312,28 @@ function ModuleDetailContent() {
                       } catch {}
                     }
 
+                    const isSelected = selectedQuestionIds.includes(q.id);
+
                     return (
                       <div
                         key={q.id}
-                        className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 transition-all space-y-2.5"
+                        className={`p-4 rounded-2xl border transition-all space-y-2.5 ${
+                          isSelected
+                            ? "border-indigo-400 dark:border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/20 ring-1 ring-indigo-400"
+                            : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40"
+                        }`}
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            {/* Selection Checkbox */}
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleSelectQuestion(q.id)}
+                              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer flex-shrink-0"
+                              title={lang === "de" ? "Frage auswählen" : "Select question"}
+                            />
+
                             <span className="text-xs font-mono font-bold text-slate-400">
                               #{idx + 1}
                             </span>
@@ -2188,6 +2343,8 @@ function ModuleDetailContent() {
                                   ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300"
                                   : q.type === "MULTIPLE_CHOICE"
                                   ? "bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300"
+                                  : q.type === "MATCHING"
+                                  ? "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
                                   : "bg-purple-100 text-purple-800 dark:bg-purple-950/80 dark:text-purple-300"
                               }`}
                             >
@@ -2195,6 +2352,8 @@ function ModuleDetailContent() {
                                 ? "Single Choice"
                                 : q.type === "MULTIPLE_CHOICE"
                                 ? "Multiple Choice"
+                                : q.type === "MATCHING"
+                                ? "Zuordnung / Schema"
                                 : "Freitext"}
                             </span>
                             {q.sourceRef && (
@@ -2229,8 +2388,8 @@ function ModuleDetailContent() {
                           {q.questionText}
                         </p>
 
-                        {/* Options preview */}
-                        {parsedOptions.length > 0 && (
+                        {/* Options preview for SC and MC */}
+                        {(q.type === "SINGLE_CHOICE" || q.type === "MULTIPLE_CHOICE") && parsedOptions.length > 0 && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
                             {parsedOptions.map((opt: any, optIdx: number) => (
                               <div
@@ -2247,6 +2406,26 @@ function ModuleDetailContent() {
                                   <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 flex-shrink-0 ml-1 mr-1" />
                                 )}
                                 <span className="truncate">{opt.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Matching pairs preview */}
+                        {q.type === "MATCHING" && parsedOptions.length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            {parsedOptions.map((opt: any, optIdx: number) => (
+                              <div
+                                key={optIdx}
+                                className="p-2.5 rounded-xl text-xs bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40 text-amber-950 dark:text-amber-200 flex items-center justify-between gap-2"
+                              >
+                                <span className="font-bold bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800 flex-shrink-0">
+                                  {opt.text}
+                                </span>
+                                <span className="text-slate-400 flex-shrink-0">➔</span>
+                                <span className="truncate flex-1 text-right text-slate-700 dark:text-slate-300 font-medium">
+                                  {opt.target || opt.explanation || "Zielfeld"}
+                                </span>
                               </div>
                             ))}
                           </div>

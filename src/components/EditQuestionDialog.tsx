@@ -12,6 +12,7 @@ import {
   Sparkles,
   Layers,
   CheckCircle2,
+  ArrowLeftRight,
 } from "lucide-react";
 import { Portal } from "./Portal";
 import { useLanguage } from "@/lib/i18n";
@@ -20,13 +21,14 @@ export interface OptionItem {
   text: string;
   isCorrect: boolean;
   explanation: string;
+  target?: string;
 }
 
 export interface QuestionData {
   id: string;
   moduleId: string;
   topicId?: string | null;
-  type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT";
+  type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT" | "MATCHING";
   questionText: string;
   options?: string | null;
   sampleSolution?: string | null;
@@ -48,7 +50,7 @@ export function EditQuestionDialog({
 }: EditQuestionDialogProps) {
   const { lang, t } = useLanguage();
   const [questionText, setQuestionText] = useState("");
-  const [type, setType] = useState<"SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT">("SINGLE_CHOICE");
+  const [type, setType] = useState<"SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT" | "MATCHING">("SINGLE_CHOICE");
   const [options, setOptions] = useState<OptionItem[]>([]);
   const [sampleSolution, setSampleSolution] = useState("");
   const [sourceRef, setSourceRef] = useState("");
@@ -71,8 +73,9 @@ export function EditQuestionDialog({
             setOptions(
               parsed.map((opt: any) => ({
                 text: opt.text || "",
-                isCorrect: Boolean(opt.isCorrect),
+                isCorrect: Boolean(opt.isCorrect ?? true),
                 explanation: opt.explanation || "",
+                target: opt.target || "",
               }))
             );
           } else {
@@ -104,6 +107,12 @@ export function EditQuestionDialog({
     setOptions(updated);
   };
 
+  const handleOptionTargetChange = (idx: number, target: string) => {
+    const updated = [...options];
+    updated[idx].target = target;
+    setOptions(updated);
+  };
+
   const handleOptionExplanationChange = (idx: number, explanation: string) => {
     const updated = [...options];
     updated[idx].explanation = explanation;
@@ -124,12 +133,12 @@ export function EditQuestionDialog({
   };
 
   const handleAddOption = () => {
-    setOptions([...options, { text: "", isCorrect: false, explanation: "" }]);
+    setOptions([...options, { text: "", isCorrect: type === "MATCHING", explanation: "", target: "" }]);
   };
 
   const handleRemoveOption = (idx: number) => {
     if (options.length <= 2) {
-      alert("Eine Multiple-/Single-Choice-Frage benötigt mindestens 2 Optionen.");
+      alert("Eine Aufgabe benötigt mindestens 2 Optionen bzw. Paare.");
       return;
     }
     setOptions(options.filter((_, i) => i !== idx));
@@ -142,7 +151,16 @@ export function EditQuestionDialog({
       return;
     }
 
-    if (type !== "FREE_TEXT") {
+    if (type === "MATCHING") {
+      if (options.length < 2) {
+        setError("Eine Zuordnungsaufgabe benötigt mindestens 2 Begriff-Zielfeld-Paare.");
+        return;
+      }
+      if (options.some((o) => !o.text.trim() || !(o.target || "").trim())) {
+        setError("Bitte fülle bei allen Paaren Begriff und Zielfeld aus.");
+        return;
+      }
+    } else if (type !== "FREE_TEXT") {
       if (options.some((o) => !o.text.trim())) {
         setError("Bitte fülle alle Antwortoptionen aus oder lösche leere Optionen.");
         return;
@@ -223,7 +241,7 @@ export function EditQuestionDialog({
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                 Fragetyp
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <button
                   type="button"
                   onClick={() => setType("SINGLE_CHOICE")}
@@ -245,6 +263,17 @@ export function EditQuestionDialog({
                   }`}
                 >
                   <Layers className="w-4 h-4" /> Multiple Choice
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setType("MATCHING")}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
+                    type === "MATCHING"
+                      ? "bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-600 dark:text-indigo-300 shadow-sm"
+                      : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  <ArrowLeftRight className="w-4 h-4" /> Zuordnung
                 </button>
                 <button
                   type="button"
@@ -274,8 +303,85 @@ export function EditQuestionDialog({
               />
             </div>
 
+            {/* Matching Pairs Editor */}
+            {type === "MATCHING" && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Zuordnungspaare (Begriff ➔ Zielfeld / Definition)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddOption}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Paar hinzufügen
+                  </button>
+                </div>
+
+                <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+                  {options.map((opt, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500">
+                          Paar #{idx + 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveOption(idx)}
+                          className="p-1 rounded text-slate-400 hover:text-rose-600 transition-colors"
+                          title="Paar löschen"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                            Begriff / Schema-Bezeichnung
+                          </label>
+                          <input
+                            type="text"
+                            value={opt.text}
+                            onChange={(e) => handleOptionTextChange(idx, e.target.value)}
+                            placeholder="z. B. Chloroplast"
+                            className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                            Zielfeld / Definition
+                          </label>
+                          <input
+                            type="text"
+                            value={opt.target || ""}
+                            onChange={(e) => handleOptionTargetChange(idx, e.target.value)}
+                            placeholder="z. B. Ort der Photosynthese"
+                            className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800"
+                          />
+                        </div>
+                      </div>
+
+                      <input
+                        type="text"
+                        value={opt.explanation}
+                        onChange={(e) => handleOptionExplanationChange(idx, e.target.value)}
+                        placeholder="Erklärung / Kontext (optional)..."
+                        className="w-full px-2.5 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900 text-slate-600 dark:text-slate-300"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Options for SC and MC */}
-            {type !== "FREE_TEXT" && (
+            {(type === "SINGLE_CHOICE" || type === "MULTIPLE_CHOICE") && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">

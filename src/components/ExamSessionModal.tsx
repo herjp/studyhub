@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import confetti from "canvas-confetti";
 import { Portal } from "./Portal";
 import { useLanguage } from "@/lib/i18n";
@@ -23,13 +23,14 @@ import {
 
 export interface QuestionOption {
   text: string;
-  isCorrect: boolean;
+  isCorrect?: boolean;
   explanation?: string;
+  target?: string;
 }
 
 export interface QuizQuestion {
   id: string;
-  type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT";
+  type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT" | "MATCHING";
   questionText: string;
   options?: any;
   sampleSolution?: string | null;
@@ -70,9 +71,41 @@ export function ExamSessionModal({
   const [totalPossible, setTotalPossible] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
 
-  if (!isOpen || questions.length === 0) return null;
+  // Current question reference
+  const currentQ = questions[currentIndex] || null;
 
-  const currentQ = questions[currentIndex];
+  // Matching question state
+  const [matchingSlots, setMatchingSlots] = useState<{ target: string; correctTerm: string; explanation?: string }[]>([]);
+  const [availableTerms, setAvailableTerms] = useState<string[]>([]);
+  const [assignedMatches, setAssignedMatches] = useState<Record<number, string>>({});
+  const [selectedMatchingTerm, setSelectedMatchingTerm] = useState<string | null>(null);
+
+  // Initialize matching slots when current question changes
+  useEffect(() => {
+    if (currentQ?.type === "MATCHING") {
+      let opts: any[] = [];
+      try {
+        opts = typeof currentQ.options === "string" ? JSON.parse(currentQ.options) : currentQ.options || [];
+      } catch {
+        opts = [];
+      }
+
+      const slots = opts.map((o: any, idx: number) => ({
+        target: o.target || o.explanation || `Slot ${idx + 1}`,
+        correctTerm: o.text || `Begriff ${idx + 1}`,
+        explanation: o.explanation || "",
+      }));
+
+      setMatchingSlots(slots);
+      // Randomize terms for user selection
+      const terms = slots.map((s) => s.correctTerm).sort(() => Math.random() - 0.5);
+      setAvailableTerms(terms);
+      setAssignedMatches({});
+      setSelectedMatchingTerm(null);
+    }
+  }, [currentIndex, currentQ?.id, currentQ?.type]);
+
+  if (!isOpen || questions.length === 0 || !currentQ) return null;
 
   // Parse options safely
   let parsedOptions: QuestionOption[] = [];
@@ -104,6 +137,42 @@ export function ExamSessionModal({
     } else {
       setSelectedMulti([...selectedMulti, idx]);
     }
+  };
+
+  const handleAssignTermToSlot = (slotIdx: number, termToAssign: string) => {
+    if (isAnswerSubmitted) return;
+    const newAssigned = { ...assignedMatches };
+
+    // If this term was already placed in another slot, clear it from that slot
+    Object.keys(newAssigned).forEach((k) => {
+      const idx = Number(k);
+      if (newAssigned[idx] === termToAssign) {
+        delete newAssigned[idx];
+      }
+    });
+
+    newAssigned[slotIdx] = termToAssign;
+    setAssignedMatches(newAssigned);
+
+    // Update remaining available terms pool
+    const currentlyAssigned = Object.values(newAssigned);
+    const allTerms = matchingSlots.map((s) => s.correctTerm);
+    setAvailableTerms(allTerms.filter((term) => !currentlyAssigned.includes(term)));
+    setSelectedMatchingTerm(null);
+  };
+
+  const handleUnassignSlot = (slotIdx: number) => {
+    if (isAnswerSubmitted) return;
+    const term = assignedMatches[slotIdx];
+    if (!term) return;
+
+    const newAssigned = { ...assignedMatches };
+    delete newAssigned[slotIdx];
+    setAssignedMatches(newAssigned);
+
+    const currentlyAssigned = Object.values(newAssigned);
+    const allTerms = matchingSlots.map((s) => s.correctTerm);
+    setAvailableTerms(allTerms.filter((t) => !currentlyAssigned.includes(t)));
   };
 
   const handleSubmitAnswer = async () => {
@@ -215,6 +284,40 @@ export function ExamSessionModal({
       } finally {
         setIsEvaluating(false);
       }
+    } else if (currentQ.type === "MATCHING") {
+      if (matchingSlots.length === 0) return;
+      if (Object.keys(assignedMatches).length === 0) return;
+
+      let correctCount = 0;
+      matchingSlots.forEach((slot, idx) => {
+        if (assignedMatches[idx] === slot.correctTerm) {
+          correctCount++;
+        }
+      });
+
+      const totalSlots = matchingSlots.length;
+      const scoreFraction = totalSlots > 0 ? correctCount / totalSlots : 0;
+      const roundedScore = Math.round(scoreFraction * 10) / 10;
+      const isFullyCorrect = correctCount === totalSlots;
+
+      setIsAnswerSubmitted(true);
+      setScoreEarned((prev) => prev + roundedScore);
+      setTotalPossible((prev) => prev + 1);
+
+      if (isFullyCorrect || roundedScore >= 0.8) triggerConfetti();
+
+      try {
+        await fetch("/api/trainer/progress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            questionId: currentQ.id,
+            isCorrect: isFullyCorrect,
+          }),
+        });
+      } catch (err) {
+        console.error(err);
+      }
     }
   };
 
@@ -224,6 +327,8 @@ export function ExamSessionModal({
       setSelectedSingle(null);
       setSelectedMulti([]);
       setFreeTextAnswer("");
+      setAssignedMatches({});
+      setSelectedMatchingTerm(null);
       setIsAnswerSubmitted(false);
       setFreeTextEvaluation(null);
     } else {
@@ -237,6 +342,8 @@ export function ExamSessionModal({
     setSelectedSingle(null);
     setSelectedMulti([]);
     setFreeTextAnswer("");
+    setAssignedMatches({});
+    setSelectedMatchingTerm(null);
     setIsAnswerSubmitted(false);
     setFreeTextEvaluation(null);
     setScoreEarned(0);
@@ -294,6 +401,8 @@ export function ExamSessionModal({
                   ? (lang === "de" ? "Single Choice (1 Antwort)" : "Single Choice (1 Answer)")
                   : currentQ.type === "MULTIPLE_CHOICE"
                   ? (lang === "de" ? "Multiple Choice (Mehrere Antworten möglich)" : "Multiple Choice (Multiple correct)")
+                  : currentQ.type === "MATCHING"
+                  ? (lang === "de" ? "Zuordnung & Abbildung (Drag & Drop)" : "Matching & Diagram (Drag & Drop)")
                   : (lang === "de" ? "Freitext-Aufgabe (KI-bewertet)" : "Free Text (AI Evaluated)")}
               </span>
             </div>
@@ -520,6 +629,180 @@ export function ExamSessionModal({
               </div>
             )}
 
+            {/* MATCHING / DIAGRAM DRAG & DROP AREA */}
+            {currentQ.type === "MATCHING" && (
+              <div className="space-y-4 pt-2">
+                <div className="p-3.5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-900/50 text-xs text-indigo-950 dark:text-indigo-200 flex items-center gap-2.5">
+                  <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                  <p>
+                    {lang === "de"
+                      ? "Ordne die Begriffe den passenden Feldern zu: Ziehe sie per Drag & Drop oder klicke zuerst auf einen Begriff und anschließend auf das Zielfeld."
+                      : "Match terms to their targets: Drag & drop them or click a term then click its slot."}
+                  </p>
+                </div>
+
+                {/* Pool of Available Terms */}
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                      {lang === "de" ? "Verfügbare Begriffe / Zuordnungselemente:" : "Available Terms:"} ({availableTerms.length})
+                    </span>
+                    {selectedMatchingTerm && (
+                      <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 animate-pulse">
+                        {lang === "de" ? "Klicke jetzt auf ein Zielfeld zum Ablegen" : "Click a target slot to place"}
+                      </span>
+                    )}
+                  </div>
+                  {availableTerms.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">
+                      {lang === "de" ? "✓ Alle Begriffe wurden den Feldern zugeordnet." : "✓ All terms placed."}
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {availableTerms.map((term, tIdx) => {
+                        const isSelected = selectedMatchingTerm === term;
+                        return (
+                          <div
+                            key={tIdx}
+                            draggable={!isAnswerSubmitted}
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", term);
+                            }}
+                            onClick={() => {
+                              if (isAnswerSubmitted) return;
+                              setSelectedMatchingTerm(isSelected ? null : term);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold cursor-grab active:cursor-grabbing transition-all select-none border ${
+                              isSelected
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-400 scale-105"
+                                : "bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 border-slate-300 dark:border-slate-600 hover:border-indigo-400 hover:shadow-sm"
+                            }`}
+                          >
+                            {term}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Target Slots / Diagram Definitions */}
+                <div className="space-y-3">
+                  {matchingSlots.map((slot, sIdx) => {
+                    const assignedTerm = assignedMatches[sIdx];
+                    const isSlotCorrect = isAnswerSubmitted && assignedTerm === slot.correctTerm;
+                    const isSlotWrong = isAnswerSubmitted && assignedTerm !== slot.correctTerm;
+
+                    let slotCardStyle = "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80";
+                    if (isAnswerSubmitted) {
+                      if (isSlotCorrect) {
+                        slotCardStyle = "border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/30 ring-1 ring-emerald-500";
+                      } else {
+                        slotCardStyle = "border-rose-500 bg-rose-50/70 dark:bg-rose-950/30 ring-1 ring-rose-500";
+                      }
+                    } else if (selectedMatchingTerm) {
+                      slotCardStyle = "border-indigo-300 dark:border-indigo-700 hover:border-indigo-500 bg-white dark:bg-slate-800 cursor-pointer";
+                    }
+
+                    return (
+                      <div
+                        key={sIdx}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const droppedTerm = e.dataTransfer.getData("text/plain");
+                          if (droppedTerm) {
+                            handleAssignTermToSlot(sIdx, droppedTerm);
+                          }
+                        }}
+                        onClick={() => {
+                          if (isAnswerSubmitted) return;
+                          if (selectedMatchingTerm) {
+                            handleAssignTermToSlot(sIdx, selectedMatchingTerm);
+                          }
+                        }}
+                        className={`p-4 rounded-2xl border transition-all ${slotCardStyle}`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          {/* Target Description / Definition */}
+                          <div className="flex-1">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                              Zielfeld #{sIdx + 1}
+                            </span>
+                            <p className="text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100">
+                              {slot.target}
+                            </p>
+                          </div>
+
+                          {/* Assigned Term Drop Target */}
+                          <div className="flex-shrink-0 min-w-[180px]">
+                            {assignedTerm ? (
+                              <div
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleUnassignSlot(sIdx);
+                                }}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center justify-between gap-2 cursor-pointer transition-all ${
+                                  isAnswerSubmitted
+                                    ? isSlotCorrect
+                                      ? "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200 border-emerald-300"
+                                      : "bg-rose-100 dark:bg-rose-900/60 text-rose-900 dark:text-rose-200 border-rose-300"
+                                    : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-200 border-indigo-200 hover:bg-indigo-100"
+                                }`}
+                              >
+                                <span className="truncate">{assignedTerm}</span>
+                                {!isAnswerSubmitted && (
+                                  <span className="text-slate-400 hover:text-rose-500 font-bold ml-1 text-sm">✕</span>
+                                )}
+                                {isAnswerSubmitted && isSlotCorrect && (
+                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                                )}
+                                {isAnswerSubmitted && isSlotWrong && (
+                                  <XCircle className="w-3.5 h-3.5 text-rose-600 flex-shrink-0" />
+                                )}
+                              </div>
+                            ) : (
+                              <div
+                                className={`px-3 py-2 rounded-xl text-xs font-semibold border-2 border-dashed text-center transition-all ${
+                                  selectedMatchingTerm
+                                    ? "border-indigo-400 bg-indigo-50/40 text-indigo-700 animate-pulse"
+                                    : "border-slate-300 dark:border-slate-700 text-slate-400 bg-slate-50/50 dark:bg-slate-900/40"
+                                }`}
+                              >
+                                {selectedMatchingTerm
+                                  ? (lang === "de" ? "Hier platzieren" : "Place here")
+                                  : (lang === "de" ? "Begriff ablegen oder anklicken" : "Drop or click term")}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* If submitted and wrong, show correct term & explanation */}
+                        {isAnswerSubmitted && isSlotWrong && (
+                          <div className="mt-2.5 pt-2 border-t border-rose-200 dark:border-rose-900/50 text-xs text-rose-800 dark:text-rose-300 flex items-center gap-2">
+                            <span className="font-bold">{lang === "de" ? "Richtige Zuordnung:" : "Correct match:"}</span>
+                            <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 font-bold">
+                              {slot.correctTerm}
+                            </span>
+                            {slot.explanation && (
+                              <span className="text-slate-600 dark:text-slate-400 italic ml-1">
+                                ({slot.explanation})
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {isAnswerSubmitted && isSlotCorrect && slot.explanation && (
+                          <div className="mt-2 text-xs text-slate-600 dark:text-slate-400 italic">
+                            💡 {slot.explanation}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Bottom Actions */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
               <span className="text-xs text-slate-400">
@@ -535,7 +818,8 @@ export function ExamSessionModal({
                       isEvaluating ||
                       (currentQ.type === "SINGLE_CHOICE" && selectedSingle === null) ||
                       (currentQ.type === "MULTIPLE_CHOICE" && selectedMulti.length === 0) ||
-                      (currentQ.type === "FREE_TEXT" && !freeTextAnswer.trim())
+                      (currentQ.type === "FREE_TEXT" && !freeTextAnswer.trim()) ||
+                      (currentQ.type === "MATCHING" && Object.keys(assignedMatches).length < matchingSlots.length)
                     }
                     className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 transition-all shadow-sm"
                   >

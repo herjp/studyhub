@@ -23,9 +23,14 @@ export interface SummaryResult {
 }
 
 export interface GeneratedQuestion {
-  type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT";
+  type: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT" | "MATCHING";
   questionText: string;
-  options?: Array<{ text: string; isCorrect: boolean; explanation: string }>;
+  options?: Array<{
+    text: string;
+    isCorrect?: boolean;
+    explanation?: string;
+    target?: string;
+  }>;
   sampleSolution?: string;
   sourceRef: string;
   topicName?: string;
@@ -633,6 +638,103 @@ ${
   };
 }
 
+/**
+ * Strips non-examinable introductory metadata, tables of contents,
+ * prefaces, acknowledgements, publisher boilerplate, and course logistics.
+ */
+export function cleanDocumentBoilerplate(text: string): string {
+  if (!text) return "";
+  const lines = text.split("\n");
+  const cleanedLines: string[] = [];
+  let skippingBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const lower = trimmed.toLowerCase();
+
+    // Check if line indicates start of a boilerplate section
+    if (
+      /^(inhaltsverzeichnis|table of contents|inhalt|gliederung)\b/i.test(trimmed) ||
+      /^(vorwort|preface|danksagung|widmung|acknowledgements?)\b/i.test(trimmed) ||
+      /^(impressum|copyright|alle rechte vorbehalten|bibliografische information)\b/i.test(trimmed) ||
+      /^(über die autoren|über den autor|autorenverzeichnis|about the authors?)\b/i.test(trimmed) ||
+      /^(organisatorisches|hinweise zur vorlesung|klausurmodalit[äa]ten|sprechstunde)\b/i.test(trimmed)
+    ) {
+      skippingBlock = true;
+      continue;
+    }
+
+    // Stop skipping if we hit an actual chapter or lecture topic
+    if (
+      skippingBlock &&
+      (/^(kapitel\s+\d+|chapter\s+\d+|teil\s+[a-z\d]+|\d+\.\s+[a-zäöü])/i.test(trimmed) ||
+       (trimmed.startsWith("[Seite ") && !/seite\s+[1-4]\b/i.test(trimmed)))
+    ) {
+      skippingBlock = false;
+    }
+
+    if (skippingBlock) {
+      continue;
+    }
+
+    // Filter out individual boilerplate lines (copyright notices, page numbers, author lines)
+    if (
+      /copyright\s*©|all rights reserved|isbn\s*[\d\-]+/i.test(lower) ||
+      /^seite\s*\d+\s*(von|\/)\s*\d+$/i.test(lower) ||
+      /^(prof\.|dr\.|prof\. dr\.|universit[äa]t|lehrstuhl für)\b/i.test(lower) ||
+      /^(wintersemester|sommersemester)\s*20\d\d/i.test(lower)
+    ) {
+      continue;
+    }
+
+    cleanedLines.push(line);
+  }
+
+  const result = cleanedLines.join("\n").trim();
+  // If cleaning stripped too much, fallback to original text so we don't return empty string
+  return result.length > 200 ? result : text;
+}
+
+/**
+ * Evenly samples substantive lecture excerpts across the entire document
+ * (early, middle, and late chapters/slides) so questions cover the whole course.
+ */
+export function sampleStratifiedChunks(cleanedText: string, maxTotalChars: number = 32000): string {
+  if (!cleanedText) return "";
+  if (cleanedText.length <= maxTotalChars) return cleanedText;
+
+  // Split into page blocks or paragraphs
+  const rawBlocks = cleanedText.includes("[Seite ")
+    ? cleanedText.split(/(?=\[Seite \d+\])/g).filter((b) => b.trim().length > 50)
+    : cleanedText.split(/\n{2,}/g).filter((b) => b.trim().length > 60);
+
+  if (rawBlocks.length <= 6) {
+    const usableText = cleanedText.slice(Math.min(2000, Math.floor(cleanedText.length * 0.05)));
+    return usableText.slice(0, maxTotalChars);
+  }
+
+  // Discard first 5% of blocks if they might be front matter
+  const startIndex = Math.min(3, Math.floor(rawBlocks.length * 0.05));
+  const usableBlocks = rawBlocks.slice(startIndex);
+
+  // We sample across 7 distinct regions evenly distributed through the entire material
+  const numSamples = 7;
+  const step = Math.max(1, Math.floor(usableBlocks.length / numSamples));
+  const charsPerSample = Math.floor(maxTotalChars / numSamples);
+  const selectedExcerpts: string[] = [];
+
+  for (let s = 0; s < numSamples; s++) {
+    const blockIndex = Math.min(usableBlocks.length - 1, s * step);
+    const block = usableBlocks[blockIndex];
+    if (block) {
+      selectedExcerpts.push(block.trim().slice(0, charsPerSample));
+    }
+  }
+
+  return selectedExcerpts.join("\n\n---\n[Weiteres Vorlesungskapitel / Abschnitt]\n---\n\n");
+}
+
 export const generateTopicSummary = summarizeTopic;
 
 /**
@@ -644,67 +746,97 @@ export async function generateQuestionsWithAI(params: {
   topicName?: string;
   documentsText?: string;
   count?: number;
+  existingQuestions?: string[];
   apiKey?: string;
   provider?: string;
   model?: string;
 }): Promise<GeneratedQuestion[]> {
-  const { moduleId, topicName = "Klausurschwerpunkte", documentsText, count = 5, apiKey, provider = "gemini", model } = params;
+  const {
+    moduleId,
+    topicName = "Klausurschwerpunkte",
+    documentsText,
+    count = 5,
+    existingQuestions = [],
+    apiKey,
+    provider = "gemini",
+    model,
+  } = params;
 
-  let contextSnippet = documentsText;
-  if (!contextSnippet) {
-    const docs = await searchModuleDocuments(moduleId, topicName, 6);
-    contextSnippet = docs.map((d) => `[Dokument: ${d.documentTitle}]:\n${d.textSnippet}`).join("\n\n");
+  let rawContext = documentsText;
+  if (!rawContext) {
+    const docs = await searchModuleDocuments(moduleId, topicName, 8);
+    rawContext = docs.map((d) => `[Dokument: ${d.documentTitle}]:\n${d.textSnippet}`).join("\n\n");
   }
 
-  if (!contextSnippet || contextSnippet.trim().length === 0) {
+  if (!rawContext || rawContext.trim().length === 0) {
     throw new Error("Kein Text in den Vorlesungsunterlagen gefunden. Bitte lade Unterlagen mit lesbarem Text (PDF oder Bilder) hoch.");
   }
 
-  // Validate that document text is genuine readable words, not binary garbage from corrupted streams
-  if (!isValidPdfText(contextSnippet)) {
+  // Validate that document text is genuine readable words, not binary garbage
+  if (!isValidPdfText(rawContext)) {
     throw new Error(
       "Die hinterlegten Unterlagen enthalten noch keinen lesbaren Text (möglicherweise reine Scans/Fotos oder unleserliche Zeichen). Bitte lade das Dokument erneut hoch, damit die KI-Texterkennung (Gemini Vision OCR) den Inhalt automatisch erfasst."
     );
   }
 
-  const sys = `Du bist ein angesehener Universitätsprofessor und Klausurersteller.
-WICHTIGSTE VORGABE: Erstelle Klausurfragen AUSSCHLIESSLICH und STRENG auf Basis der unten bereitgestellten Vorlesungsunterlagen.
-Erfinde KEINE Fragen zu anderen Themengebieten, die nicht im Skript vorkommen!
-Erstelle genau ${count} anspruchsvolle Prüfungsfragen zum Inhalt des Skripts.
-Ausgewogene Mischung:
-1. SINGLE_CHOICE (Genau 1 richtige Option aus 4; jede Option mit Begründung/Erklärung)
-2. MULTIPLE_CHOICE (2 bis 3 richtige Optionen aus 4 mit Erklärungen)
-3. FREE_TEXT (Klausurtypische Freitextaufgabe mit ausführlicher Musterlösung)
+  // 1. Clean boilerplate (Vorwort, Inhaltsverzeichnis, Impressum, Organisatorisches)
+  const cleanedText = cleanDocumentBoilerplate(rawContext);
+
+  // 2. Sample stratified excerpts across the ENTIRE document (beginning, middle, and end)
+  const stratifiedContext = sampleStratifiedChunks(cleanedText, 32000);
+
+  const existingQuestionsWarning =
+    existingQuestions && existingQuestions.length > 0
+      ? `\nBEREITS EXISTIERENDE FRAGEN (STRENG VERBOTEN ZU WIEDERHOLEN!):\n${existingQuestions
+          .slice(0, 30)
+          .map((q, i) => `${i + 1}. ${q}`)
+          .join("\n")}\n`
+      : "";
+
+  const sys = `Du bist ein erfahrener Universitätsprofessor und anspruchsvoller Klausurersteller.
+WICHTIGSTE QUALITÄTSVORGABEN:
+1. Erstelle Prüfungsfragen AUSSCHLIESSLICH auf Basis der fachlichen Inhalte des bereitgestellten Vorlesungsmaterials.
+2. ABSOLUT VERBOTEN (STRENG FILTERN):
+   - KEINE Fragen über Inhaltsverzeichnisse, Gliederungen oder Seitenzahlen!
+   - KEINE Fragen über Vorworte, Widmungen, Danksagungen oder Impressum!
+   - KEINE Meta-Fragen über Autoren, Professoren, Universitäten, Klausurtermine oder Sprechstunden!
+3. ECHTE KLAUSURRELEVANZ:
+   - Frage nach zentralen Fachbegriffen, Definitionen, Theorien, Modellen, Formeln, Architekturmustern und Trade-offs.
+   - Frage nach Ursache-Wirkungs-Prinzipien, Vor- und Nachteilen, Praxisanwendungen und Abbildungszusammenhängen.
+4. AUSGEWOGENER PRÜFUNGS-MIX:
+   - SINGLE_CHOICE: Genau 1 richtige Option aus 4; jede Option mit Begründung/Erklärung.
+   - MULTIPLE_CHOICE: 2 bis 3 richtige Optionen aus 4 mit Erklärungen.
+   - FREE_TEXT: Akademische Transfer- oder Klausuraufgabe mit ausführlicher Kriterien-Musterlösung.
+   - MATCHING: Zuordnungs- / Drag-and-Drop-Aufgabe für Prozesse, Modelle, Abbildungen oder Definitionen.
+     (In 'options' hat jedes Element 'text' für den Begriff und 'target' für die passende Definition/Kategorie).
+5. KEINE DUPLIKATE: Erstelle nur neue, unverbrauchte Fragen, die sich nicht wiederholen.${existingQuestionsWarning}
 
 Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit dem Key "questions":
 {
   "questions": [
     {
-      "type": "SINGLE_CHOICE",
-      "questionText": "Klausuraufgabe...",
+      "type": "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT" | "MATCHING",
+      "questionText": "Anspruchsvolle Klausurfrage...",
       "options": [
-        { "text": "Option A...", "isCorrect": true, "explanation": "Erklärung..." },
-        { "text": "Option B...", "isCorrect": false, "explanation": "Erklärung..." },
-        { "text": "Option C...", "isCorrect": false, "explanation": "Erklärung..." },
-        { "text": "Option D...", "isCorrect": false, "explanation": "Erklärung..." }
+        { "text": "Begriff oder Option A", "isCorrect": true, "explanation": "Warum korrekt", "target": "Ziel-Definition bei MATCHING" }
       ],
-      "sampleSolution": "Kurze Musterlösung",
-      "sourceRef": "Name der Vorlesungsunterlage / Folie",
+      "sampleSolution": "Ausführliche Musterlösung für Klausurkorrektur",
+      "sourceRef": "Themenbereich / Folienkapitel",
       "topicName": "${topicName}"
     }
   ]
 }`;
 
-  const userPrompt = `FACH / THEMA: ${topicName}
+  const userPrompt = `FACH / MODUL: ${topicName}
 
-HOCHGELADENE VORLESUNGSMATERIALIEN DES STUDIERENDEN:
+AUSZÜGE AUS DEM GESAMTEN VORLESUNGSMATERIAL (Gleichmäßig über alle Kapitel verteilt):
 ---
-${contextSnippet.slice(0, 28000)}
+${stratifiedContext}
 ---
 
-Erstelle jetzt genau ${count} Prüfungsfragen, die sich STRIKT auf die obigen Auszüge beziehen.`;
+Erstelle jetzt genau ${count} anspruchsvolle, klausurrelevante Prüfungsfragen zum FACHINHALT der obigen Auszüge. Ignoriere Formalia, Inhaltsverzeichnisse und Vorworte vollständig.`;
 
-  const { parsed, modelUsed } = await callUniversalAIJSON({
+  const { parsed } = await callUniversalAIJSON({
     prompt: userPrompt,
     systemInstruction: sys,
     provider,
@@ -715,17 +847,48 @@ Erstelle jetzt genau ${count} Prüfungsfragen, die sich STRIKT auf die obigen Au
   const rawList = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.questions) ? parsed.questions : []);
 
   if (rawList.length > 0) {
-    return rawList.slice(0, count).map((item: any) => ({
-      type: item.type === "SINGLE_CHOICE" ? "SINGLE_CHOICE" : item.type === "MULTIPLE_CHOICE" ? "MULTIPLE_CHOICE" : "FREE_TEXT",
-      questionText: item.questionText || `Klausurfrage zu ${topicName}`,
-      options: Array.isArray(item.options) ? item.options : undefined,
-      sampleSolution: item.sampleSolution || "Musterlösung",
-      sourceRef: item.sourceRef || `${topicName} (${provider.toUpperCase()})`,
-      topicName: item.topicName || topicName,
-    }));
+    const existingSet = new Set(
+      existingQuestions.map((eq) => eq.toLowerCase().replace(/[^a-z0-9äöü]/g, ""))
+    );
+
+    const result: GeneratedQuestion[] = [];
+    for (const item of rawList) {
+      const qText = item.questionText || `Klausurfrage zu ${topicName}`;
+      const normalizedQ = qText.toLowerCase().replace(/[^a-z0-9äöü]/g, "");
+
+      // Deduplicate: Skip if already exists
+      if (existingSet.has(normalizedQ)) {
+        continue;
+      }
+      existingSet.add(normalizedQ);
+
+      const type =
+        item.type === "SINGLE_CHOICE"
+          ? "SINGLE_CHOICE"
+          : item.type === "MULTIPLE_CHOICE"
+          ? "MULTIPLE_CHOICE"
+          : item.type === "MATCHING"
+          ? "MATCHING"
+          : "FREE_TEXT";
+
+      result.push({
+        type,
+        questionText: qText,
+        options: Array.isArray(item.options) ? item.options : undefined,
+        sampleSolution: item.sampleSolution || "Musterlösung",
+        sourceRef: item.sourceRef || `${topicName}`,
+        topicName: item.topicName || topicName,
+      });
+
+      if (result.length >= count) break;
+    }
+
+    if (result.length > 0) {
+      return result;
+    }
   }
 
-  throw new Error("Das KI-Modell hat keine Fragen generiert. Bitte prüfe das Vorlesungsdokument.");
+  throw new Error("Das KI-Modell hat keine neuen Fragen generiert. Bitte prüfe das Vorlesungsdokument.");
 }
 
 /**

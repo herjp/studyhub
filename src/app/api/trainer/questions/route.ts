@@ -58,35 +58,50 @@ export async function DELETE(req: Request) {
     }
 
     const url = new URL(req.url);
-    const id = url.searchParams.get("id");
+    const singleId = url.searchParams.get("id");
+    const queryIds = url.searchParams.get("ids")?.split(",").filter(Boolean);
 
-    if (!id) {
-      return NextResponse.json({ error: "Fragen-ID fehlt" }, { status: 400 });
+    let targetIds: string[] = [];
+    if (singleId) {
+      targetIds = [singleId];
+    } else if (queryIds && queryIds.length > 0) {
+      targetIds = queryIds;
+    } else {
+      try {
+        const body = await req.json();
+        if (Array.isArray(body?.ids)) {
+          targetIds = body.ids.filter((i: any) => typeof i === "string" && i.trim().length > 0);
+        } else if (body?.id) {
+          targetIds = [body.id];
+        }
+      } catch {
+        // ignore JSON parse error if no body
+      }
     }
 
-    const existing = await prisma.question.findUnique({
-      where: { id },
-      include: {
+    if (targetIds.length === 0) {
+      return NextResponse.json({ error: "Keine Fragen-IDs übergeben" }, { status: 400 });
+    }
+
+    // Strict ownership verification: only delete questions belonging to this user
+    const deleteResult = await prisma.question.deleteMany({
+      where: {
+        id: { in: targetIds },
         module: {
-          include: {
-            semester: true,
+          semester: {
+            userId: user.id,
           },
         },
       },
     });
 
-    if (!existing || existing.module.semester.userId !== user.id) {
-      return NextResponse.json({ error: "Frage nicht gefunden oder nicht autorisiert" }, { status: 403 });
-    }
-
-    // Delete question (cascades to QuestionProgress)
-    await prisma.question.delete({
-      where: { id },
+    return NextResponse.json({
+      success: true,
+      count: deleteResult.count,
+      deletedIds: targetIds,
     });
-
-    return NextResponse.json({ success: true, deletedId: id });
   } catch (error: any) {
-    console.error("Failed to delete question:", error);
-    return NextResponse.json({ error: "Fehler beim Löschen der Frage" }, { status: 500 });
+    console.error("Failed to delete question(s):", error);
+    return NextResponse.json({ error: "Fehler beim Löschen der Fragen" }, { status: 500 });
   }
 }

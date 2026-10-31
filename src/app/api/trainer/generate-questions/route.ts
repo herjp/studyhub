@@ -77,7 +77,14 @@ export async function POST(req: Request) {
       topicName = mod.name;
     }
 
-    // 5. Combine document text strictly from this module
+    // 5. Fetch existing question texts to guarantee zero duplicates
+    const existingQRecords = await prisma.question.findMany({
+      where: { moduleId },
+      select: { questionText: true },
+    });
+    const existingQuestionTexts = existingQRecords.map((q) => q.questionText);
+
+    // 6. Combine document text strictly from this module
     const combinedDocText = validDocs
       .map(
         (doc, idx) =>
@@ -85,7 +92,7 @@ export async function POST(req: Request) {
       )
       .join("\n\n");
 
-    // 6. Generate questions strictly from uploaded documents
+    // 7. Generate questions strictly from uploaded documents without duplicates
     let aiQuestions;
     try {
       aiQuestions = await generateQuestionsWithAI({
@@ -93,6 +100,7 @@ export async function POST(req: Request) {
         topicName,
         documentsText: combinedDocText,
         count: Math.min(Math.max(1, count), 15),
+        existingQuestions: existingQuestionTexts,
         apiKey: apiKey?.trim() || undefined,
         provider,
         model,
@@ -117,7 +125,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 7. Save to database
+    // 8. Save to database
     const createdQuestions = [];
     for (const q of aiQuestions) {
       const newQ = await prisma.question.create({
@@ -129,6 +137,8 @@ export async function POST(req: Request) {
               ? QuestionType.SINGLE_CHOICE
               : q.type === "MULTIPLE_CHOICE"
               ? QuestionType.MULTIPLE_CHOICE
+              : q.type === "MATCHING"
+              ? QuestionType.MATCHING
               : QuestionType.FREE_TEXT,
           questionText: q.questionText,
           options: q.options ? JSON.stringify(q.options) : JSON.stringify([]),
