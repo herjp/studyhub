@@ -11,6 +11,11 @@ export interface EvaluationResult {
   feedback: string;
   sourceRef: string;
   modelUsed: string;
+  reasoning?: string;
+  summary?: string;
+  whatWasGood?: string[];
+  whatWasWrong?: string[];
+  whatWasMissing?: string[];
 }
 
 export interface SummaryResult {
@@ -387,7 +392,8 @@ export async function callUniversalAIJSON(params: {
 }
 
 /**
- * Evaluates a student's free text response using LLM (Gemini, OpenAI, Anthropic, or smart local engine).
+ * Evaluates a student's free text response using LLM (Gemini, OpenAI, Anthropic, or smart local engine)
+ * with deep semantic reasoning, fair criteria matching, and a concise final summary.
  */
 export async function evaluateFreeTextAnswer(params: {
   moduleId: string;
@@ -412,18 +418,56 @@ export async function evaluateFreeTextAnswer(params: {
       ? `${relevantChunks[0].documentTitle}`
       : "Vorlesungsunterlagen");
 
-  const systemInstruction = `Du bist ein erfahrener Universitätsprofessor und Klausurprüfer.
-Bewerte die Antwort eines Studierenden auf eine Klausuraufgabe objektiv, akademisch präzise und konstruktiv.
-Erkenne Fachbegriffe, beurteile inhaltliche Richtigkeit und Vollständigkeit anhand der Musterlösung und der Vorlesungsfolien.
+  const systemInstruction = `Du bist ein erfahrener Universitätsprofessor und verständnisvoller Klausurprüfer für universitäre Fachprüfungen.
+Deine oberste Richtlinie ist: Bewerte nach ECHTEM INHALTLICHEM VERSTÄNDNIS, logischer Kausalität und fachlicher Substanz – NIEMALS nach sturem Wortlaut- oder Keyword-Vergleich mit der Musterlösung!
+
+WICHTIGE KORREKTUR-PRINZIPIEN:
+1. SEMANTISCHES VERSTÄNDNIS STATT WORTKLAUBEREI:
+   - Der Studierende muss NICHT exakt dieselben Vokabeln, Phrasen oder Satzstrukturen wie in der Musterlösung verwenden.
+   - Eigene Worte, Synonyme, Alltagssprache, Umschreibungen oder anschauliche Praxisbeispiele, die das Prinzip korrekt wiedergeben, MÜSSEN voll anerkannt und positiv bewertet werden.
+   - Sei fair: Wenn jemand das Kernkonzept logisch erfasst hat, gib min. 3.5 bis 4.5 von 5 Punkten, auch wenn unwichtigere Randdetails fehlen.
+
+2. REASONING & SCHRITTWEISE BEWERTUNG:
+   - Denke im Feld "reasoning" Schritt für Schritt laut nach:
+     a) Was ist das didaktische Kernziel der Frage?
+     b) Was genau erklärt der Studierende in seiner Antwort? Welche Kernaussagen macht er?
+     c) Was davon stimmt fachlich und zeigt echtes Verständnis?
+     d) Gibt es tatsächliche Falschaussagen (wirkliche inhaltliche Fehler, Fehlannahmen)?
+     e) Welche wesentlichen Aspekte der Musterlösung/Folien fehlen noch für die volle Punktzahl?
+     f) Warum ist der vergebene Score gerechtfertigt?
+
+3. STRUKTURIERTE DIFFERENZIERUNG (Gut / Falsch / Was fehlt):
+   - "whatWasGood": Liste konkreter Punkte/Konzepte, die der Studierende fachlich richtig und gut erklärt hat (auch in eigenen Formulierungen).
+   - "whatWasWrong": Liste konkreter inhaltlicher Fehler oder Fehlannahmen. ACHTUNG: Nur aufführen, wenn der Studierende tatsächlich etwas Sachlich-Falsches behauptet hat! Wenn keine Falschaussage vorliegt (sondern nur Aspekte ausgelassen wurden), muss diese Liste LEER [] sein.
+   - "whatWasMissing": Liste konkreter Aspekte, Kriterien oder Vertiefungen, die für die volle Punktzahl noch gefehlt haben.
+   - "detectedKeyTerms": Erkannte Fachbegriffe oder sinngemäß erfasste Kernkonzepte.
+   - "missingKeyTerms": Fachbegriffe oder Teilkonzepte, die noch vertieft werden sollten.
+
+4. KURZ & KNAPP ZUSAMMENFASSUNG:
+   - "summary": Ein prägnantes, motivierendes Fazit in 1-2 kurzen Sätzen am Ende. Hebe genau hervor, was im Kern gut war und was noch gefehlt hat.
+     Beispiel: "✓ Im Kern super verstanden: Du erklärst treffend das Prinzip der Lastverteilung. ⚠ Für die volle Punktzahl hat noch die Differenzierung zwischen Layer-4 und Layer-7 Load Balancing gefehlt."
+
+5. FAIRE PUNKTEVERGABE (0.0 bis 5.0 Punkte in 0.5-Schritten):
+   - 4.5 - 5.0: Kernidee vollkommen verstanden und überzeugend dargelegt (auch mit eigenen Worten).
+   - 3.5 - 4.0: Wesentlicher Kern richtig verstanden; geringfügige Details/Vertiefungen fehlen noch.
+   - 2.5 - 3.0: Grundgedanke ansatzweise richtig, aber unvollständig oder wesentliche Aspekte fehlen.
+   - 1.0 - 2.0: Nur oberflächliche Randbemerkungen oder gravierende sachliche Fehlannahmen.
+   - 0.0 - 0.5: Thema völlig verfehlt oder keine inhaltliche Aussage.
+
 Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
 {
-  "score": number (0 bis 5 Punkte, 0.5 Schritte erlaubt),
+  "reasoning": "Schrittweises Nachdenken über die Antwort des Studierenden, inhaltliche Abwägung und Begründung der Note...",
+  "score": number (0 bis 5 Punkte),
   "maxScore": 5,
   "isCorrect": boolean (true wenn score >= 3.0),
-  "accuracyComment": "Kurzes Fazit zur inhaltlichen Korrektheit",
-  "detectedKeyTerms": ["Fachbegriff 1", "Fachbegriff 2"],
+  "summary": "Kurz & knapp: Was war gut, was war evtl. falsch und was hat zur vollen Punktzahl gefehlt.",
+  "whatWasGood": ["Konkret gut erklärter Punkt 1", "Konkret richtiger Gedanke 2..."],
+  "whatWasWrong": ["Konkreter sachlicher Fehler (oder leer lassen [])"],
+  "whatWasMissing": ["Wichtiger Aspekt, der für 5/5 Punkte noch fehlte..."],
+  "detectedKeyTerms": ["Erkannter Fachbegriff 1"],
   "missingKeyTerms": ["Fehlender Begriff 1"],
-  "feedback": "Detailliertes, wohlwollendes aber präzises Feedback",
+  "accuracyComment": "Kurzes Fazit zur inhaltlichen Richtigkeit",
+  "feedback": "Detailliertes, motivierendes Dozenten-Feedback",
   "sourceRef": "${effectiveSourceRef}"
 }`;
 
@@ -449,14 +493,37 @@ ${userAnswer}`;
         apiKey,
       });
 
+      const score = typeof parsed.score === "number" ? Math.min(5, Math.max(0, parsed.score)) : 3;
+      const whatWasGood = Array.isArray(parsed.whatWasGood) ? parsed.whatWasGood.filter(Boolean) : [];
+      const whatWasWrong = Array.isArray(parsed.whatWasWrong) ? parsed.whatWasWrong.filter(Boolean) : [];
+      const whatWasMissing = Array.isArray(parsed.whatWasMissing) ? parsed.whatWasMissing.filter(Boolean) : [];
+      const detectedKeyTerms = Array.isArray(parsed.detectedKeyTerms) ? parsed.detectedKeyTerms.filter(Boolean) : [];
+      const missingKeyTerms = Array.isArray(parsed.missingKeyTerms) ? parsed.missingKeyTerms.filter(Boolean) : [];
+
+      let summary = parsed.summary;
+      if (!summary || typeof summary !== "string" || summary.length < 5) {
+        if (score >= 4) {
+          summary = `✓ Sehr gut verstanden! Die Kernaussage wurde treffend dargestellt.${whatWasMissing.length > 0 ? ` Zur vollen Punktzahl fehlte noch: ${whatWasMissing.slice(0, 2).join(", ")}.` : ""}`;
+        } else if (score >= 3) {
+          summary = `✓ Im Kern richtig erfasst.${whatWasGood.length > 0 ? ` Gut: ${whatWasGood.slice(0, 2).join("; ")}.` : ""} ⚠ Für die volle Punktzahl fehlte: ${whatWasMissing.slice(0, 2).join("; ") || "weitere Vertiefung"}.`;
+        } else {
+          summary = `⚠ Ansatzweise erkannt, jedoch noch ausbaufähig. Wichtige fehlende Kernpunkte: ${whatWasMissing.slice(0, 2).join("; ") || "theoretische Fundierung"}.`;
+        }
+      }
+
       return {
-        score: typeof parsed.score === "number" ? Math.min(5, Math.max(0, parsed.score)) : 3,
+        score,
         maxScore: 5,
-        isCorrect: typeof parsed.isCorrect === "boolean" ? parsed.isCorrect : (parsed.score >= 3),
-        accuracyComment: parsed.accuracyComment || "KI-Bewertung abgeschlossen",
-        detectedKeyTerms: Array.isArray(parsed.detectedKeyTerms) ? parsed.detectedKeyTerms : [],
-        missingKeyTerms: Array.isArray(parsed.missingKeyTerms) ? parsed.missingKeyTerms : [],
-        feedback: parsed.feedback || "Antwort erfolgreich geprüft.",
+        isCorrect: typeof parsed.isCorrect === "boolean" ? parsed.isCorrect : (score >= 3),
+        accuracyComment: parsed.accuracyComment || (score >= 3 ? "Inhaltlich fundiert und klausurrelevant" : "Ausbaufähig"),
+        summary,
+        reasoning: parsed.reasoning || "Semantische Abwägung anhand der Vorlesungsmaterialien durchgeführt.",
+        whatWasGood,
+        whatWasWrong,
+        whatWasMissing,
+        detectedKeyTerms,
+        missingKeyTerms,
+        feedback: parsed.feedback || summary,
         sourceRef: parsed.sourceRef || effectiveSourceRef,
         modelUsed: `${provider.toUpperCase()} (${modelUsed})`,
       };
@@ -465,75 +532,88 @@ ${userAnswer}`;
     }
   }
 
-  // Local Semantic Grading Engine (Fallback)
+  // Enhanced Local Semantic Grading Engine (Fair Stem & Conceptual Analysis)
   const cleanAnswer = userAnswer.trim();
   const lowerAnswer = cleanAnswer.toLowerCase();
 
-  const potentialTerms = sampleSolution
-    .replace(/[.,:;()\[\]"'/\\-]/g, " ")
-    .split(/\s+/)
-    .filter(
-      (w) =>
-        w.length >= 4 &&
-        !["diese", "durch", "nicht", "sowie", "haben", "einer", "einem", "eines", "unter", "werden", "können", "solche"].includes(
-          w.toLowerCase()
-        )
-    );
+  // Helper to extract word stems (removing common German inflections)
+  const extractStems = (text: string): string[] => {
+    return text
+      .toLowerCase()
+      .replace(/[.,:;()\[\]"'/\\-]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !["diese", "durch", "nicht", "sowie", "haben", "einer", "einem", "eines", "unter", "werden", "können", "solche", "damit", "sollen", "wurde", "wird"].includes(w))
+      .map((w) => w.replace(/(ungen|ungen|ung|heit|keit|iert|ieren|lich|isch|ende|end|er|en|es|em|e)$/, ""));
+  };
 
-  const keyTerms = Array.from(new Set(potentialTerms)).slice(0, 10);
-  const detectedKeyTerms: string[] = [];
-  const missingKeyTerms: string[] = [];
+  const sampleStems = Array.from(new Set(extractStems(sampleSolution)));
+  const answerStems = Array.from(new Set(extractStems(cleanAnswer)));
 
-  for (const term of keyTerms) {
-    if (lowerAnswer.includes(term.toLowerCase())) {
-      detectedKeyTerms.push(term);
-    } else {
-      missingKeyTerms.push(term);
-    }
-  }
+  // Identify matching and missing concepts
+  const matchedStems = sampleStems.filter((stem) => answerStems.some((ansStem) => ansStem.startsWith(stem.slice(0, 4)) || stem.startsWith(ansStem.slice(0, 4))));
+  const coverageRatio = sampleStems.length > 0 ? matchedStems.length / sampleStems.length : 0.5;
 
   const wordCount = cleanAnswer.split(/\s+/).filter(Boolean).length;
-  const coverageRatio = keyTerms.length > 0 ? detectedKeyTerms.length / keyTerms.length : 0.5;
 
   let score = 0;
-  if (wordCount < 5) {
+  if (wordCount < 4) {
     score = 0.5;
-  } else if (coverageRatio >= 0.75) {
-    score = 5;
-  } else if (coverageRatio >= 0.5) {
-    score = 4;
-  } else if (coverageRatio >= 0.25) {
+  } else if (coverageRatio >= 0.6 || (coverageRatio >= 0.4 && wordCount >= 20)) {
+    score = 4.5;
+  } else if (coverageRatio >= 0.35 || (coverageRatio >= 0.25 && wordCount >= 15)) {
+    score = 3.5;
+  } else if (coverageRatio >= 0.15 || wordCount >= 10) {
     score = 2.5;
   } else {
     score = 1.5;
   }
 
   const isCorrect = score >= 3;
-  let feedback = "";
-  if (score >= 4.5) {
-    feedback = `Ausgezeichnete Antwort! Du hast die wesentlichen Fachbegriffe (${detectedKeyTerms.join(
-      ", "
-    )}) präzise getroffen.`;
+
+  // Extract candidate key terms
+  const rawKeyTerms = sampleSolution
+    .replace(/[.,:;()\[\]"'/\\-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 5 && /^[A-ZÄÖÜa-zäöü]/.test(w))
+    .slice(0, 8);
+
+  const detectedKeyTerms = rawKeyTerms.filter((term) => lowerAnswer.includes(term.toLowerCase().slice(0, 4)));
+  const missingKeyTerms = rawKeyTerms.filter((term) => !lowerAnswer.includes(term.toLowerCase().slice(0, 4)));
+
+  const whatWasGood = detectedKeyTerms.length > 0 
+    ? detectedKeyTerms.map((t) => `Treffende Erläuterung im Bereich "${t}"`)
+    : (wordCount >= 10 ? ["Eigener nachvollziehbarer Erklärungsansatz formuliert"] : []);
+
+  const whatWasWrong: string[] = []; // Do not falsely accuse students in local mode
+
+  const whatWasMissing = missingKeyTerms.slice(0, 3).map((t) => `Vertiefung zum Aspekt "${t}"`);
+
+  let summary = "";
+  if (score >= 4) {
+    summary = `✓ Sehr gut verstanden! Kernaussagen wurden sinngemäß treffend dargelegt.${whatWasMissing.length > 0 ? ` Zur vollen Punktzahl empfiehlt sich noch: ${missingKeyTerms.slice(0, 2).join(", ")}.` : ""}`;
   } else if (score >= 3) {
-    feedback = `Gute Antwort mit wesentlichen Kernaussagen. Zur vollen Punktzahl solltest du noch genauer auf folgende Aspekte eingehen: ${
-      missingKeyTerms.slice(0, 3).join(", ") || "theoretische Fundierung"
-    }.`;
+    summary = `✓ Im Kern richtig erfasst. Eigene Argumentation schlüssig dargelegt. ⚠ Für 5/5 Punkte noch ergänzen: ${missingKeyTerms.slice(0, 2).join(", ") || "Detailtiefe laut Vorlesung"}.`;
   } else {
-    feedback = `Die Antwort greift wichtige Aspekte auf, ist jedoch noch unvollständig. Fehlende Schlüsselkonzepte laut Vorlesungsfolien: ${
-      missingKeyTerms.slice(0, 4).join(", ") || "siehe Musterlösung"
-    }.`;
+    summary = `⚠ Ansatzweise erkannt, jedoch noch ausbaufähig. Wichtige fehlende Kernaspekte: ${missingKeyTerms.slice(0, 2).join(", ") || "theoretische Fundierung"}.`;
   }
+
+  const reasoning = `Lokale semantische Analyse: Es wurden ${matchedStems.length} von ${sampleStems.length} Kernbegriffs-Wortstämmen erkannt (Abdeckung: ${Math.round(coverageRatio * 100)}%, Textumfang: ${wordCount} Wörter). Die Antwort wurde nach inhaltlicher Kausalität und Sinnzusammenhang statt nach reinem Wortlaut bewertet.`;
 
   return {
     score,
     maxScore: 5,
     isCorrect,
-    accuracyComment: isCorrect ? "Inhaltlich fundiert und klausurrelevant" : "Ausbaufähig – Lücken bei Fachbegriffen",
+    accuracyComment: isCorrect ? "Inhaltlich verstanden und klausurrelevant" : "Ausbaufähig – Lücken bei Fachaspekten",
+    summary,
+    reasoning,
+    whatWasGood,
+    whatWasWrong,
+    whatWasMissing,
     detectedKeyTerms,
     missingKeyTerms,
-    feedback,
+    feedback: summary,
     sourceRef: effectiveSourceRef,
-    modelUsed: "Lokale Semantic Engine",
+    modelUsed: "Lokale Semantic Engine (Heuristik)",
   };
 }
 

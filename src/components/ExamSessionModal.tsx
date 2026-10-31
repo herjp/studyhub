@@ -19,6 +19,9 @@ import {
   Loader2,
   FileText,
   BookmarkCheck,
+  Brain,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 export interface QuestionOption {
@@ -65,6 +68,7 @@ export function ExamSessionModal({
   const [isAnswerSubmitted, setIsAnswerSubmitted] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [freeTextEvaluation, setFreeTextEvaluation] = useState<any>(null);
+  const [showReasoning, setShowReasoning] = useState(false);
 
   // Session aggregate stats
   const [scoreEarned, setScoreEarned] = useState(0);
@@ -248,11 +252,28 @@ export function ExamSessionModal({
       if (!freeTextAnswer.trim()) return;
 
       setIsEvaluating(true);
-      const storedProvider = (localStorage.getItem("studyhub_ai_provider") as any) || "local";
-      const storedKey =
+      let storedProvider = (localStorage.getItem("studyhub_ai_provider") as any) || "gemini";
+      let storedKey =
         localStorage.getItem(`studyhub_api_key_${storedProvider}`) ||
         localStorage.getItem("studyhub_api_key") ||
+        (storedProvider === "gemini" ? localStorage.getItem("studyhub_api_key_gemini") : undefined) ||
         undefined;
+
+      if (!storedKey) {
+        const geminiKey = localStorage.getItem("studyhub_api_key_gemini");
+        const openaiKey = localStorage.getItem("studyhub_api_key_openai");
+        const anthropicKey = localStorage.getItem("studyhub_api_key_anthropic");
+        if (geminiKey) {
+          storedProvider = "gemini";
+          storedKey = geminiKey;
+        } else if (openaiKey) {
+          storedProvider = "openai";
+          storedKey = openaiKey;
+        } else if (anthropicKey) {
+          storedProvider = "anthropic";
+          storedKey = anthropicKey;
+        }
+      }
 
       try {
         const res = await fetch("/api/trainer/evaluate", {
@@ -331,6 +352,7 @@ export function ExamSessionModal({
       setSelectedMatchingTerm(null);
       setIsAnswerSubmitted(false);
       setFreeTextEvaluation(null);
+      setShowReasoning(false);
     } else {
       setIsFinished(true);
       if (onSessionCompleted) onSessionCompleted();
@@ -346,6 +368,7 @@ export function ExamSessionModal({
     setSelectedMatchingTerm(null);
     setIsAnswerSubmitted(false);
     setFreeTextEvaluation(null);
+    setShowReasoning(false);
     setScoreEarned(0);
     setTotalPossible(0);
     setIsFinished(false);
@@ -556,6 +579,7 @@ export function ExamSessionModal({
                 {/* Free Text AI Evaluation Result Box */}
                 {freeTextEvaluation && (
                   <div className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/30 p-5 space-y-4 animate-in fade-in duration-200">
+                    {/* Header with Dynamic Score Badge */}
                     <div className="flex items-center justify-between pb-3 border-b border-indigo-100 dark:border-indigo-900/60">
                       <div className="flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
@@ -564,17 +588,106 @@ export function ExamSessionModal({
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-black px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700 shadow-sm">
+                        <span
+                          className={`text-xs font-black px-3 py-1 rounded-full border shadow-sm ${
+                            Number(freeTextEvaluation.score) >= 4
+                              ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700"
+                              : Number(freeTextEvaluation.score) >= 3
+                              ? "bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700"
+                              : "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700"
+                          }`}
+                        >
                           {freeTextEvaluation.score} / {freeTextEvaluation.maxScore} {lang === "de" ? "Punkte" : "Points"}
                         </span>
                       </div>
                     </div>
 
-                    <p className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed">
-                      {freeTextEvaluation.feedback}
-                    </p>
+                    {/* 1. Kurz & Knapp Zusammenfassung (Highlight-Box) */}
+                    <div className="p-3.5 sm:p-4 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200/90 dark:border-indigo-800/90 shadow-xs space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950 dark:text-indigo-300">
+                        <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <span>{lang === "de" ? "Kurz & knapp auf den Punkt:" : "Summary & Key Takeaway:"}</span>
+                      </div>
+                      <p className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-200 leading-relaxed">
+                        {freeTextEvaluation.summary || freeTextEvaluation.accuracyComment || freeTextEvaluation.feedback}
+                      </p>
+                    </div>
 
-                    {/* Identified and Missing Key Terms */}
+                    {/* 2. Strukturierte Detailbewertung (Gut / Falsch / Was fehlt) */}
+                    <div className="space-y-2.5">
+                      {/* Was gut & richtig war */}
+                      {freeTextEvaluation.whatWasGood && freeTextEvaluation.whatWasGood.length > 0 && (
+                        <div className="p-3 sm:p-3.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/80 space-y-1.5">
+                          <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                            <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            {lang === "de" ? "Das hast du richtig & gut erklärt:" : "What was correct & well understood:"}
+                          </span>
+                          <ul className="space-y-1 text-xs text-emerald-950 dark:text-emerald-200 pl-5 list-disc marker:text-emerald-500">
+                            {freeTextEvaluation.whatWasGood.map((good: string, i: number) => (
+                              <li key={i}>{good}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Was sachlich falsch / Missverständnis war (nur wenn Falschaussagen existieren) */}
+                      {freeTextEvaluation.whatWasWrong && freeTextEvaluation.whatWasWrong.length > 0 && (
+                        <div className="p-3 sm:p-3.5 rounded-xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/80 space-y-1.5">
+                          <span className="flex items-center gap-1.5 text-xs font-bold text-rose-800 dark:text-rose-300">
+                            <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                            {lang === "de" ? "Sachliche Fehler / Missverständnisse:" : "Factual inaccuracies / Misunderstandings:"}
+                          </span>
+                          <ul className="space-y-1 text-xs text-rose-950 dark:text-rose-200 pl-5 list-disc marker:text-rose-500">
+                            {freeTextEvaluation.whatWasWrong.map((wrong: string, i: number) => (
+                              <li key={i}>{wrong}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Was zur vollen Punktzahl noch gefehlt hat */}
+                      {freeTextEvaluation.whatWasMissing && freeTextEvaluation.whatWasMissing.length > 0 && (
+                        <div className="p-3 sm:p-3.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/80 space-y-1.5">
+                          <span className="flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300">
+                            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                            {lang === "de" ? "Das hat noch für die volle Punktzahl gefehlt:" : "What was missing for full points:"}
+                          </span>
+                          <ul className="space-y-1 text-xs text-amber-950 dark:text-amber-200 pl-5 list-disc marker:text-amber-500">
+                            {freeTextEvaluation.whatWasMissing.map((missing: string, i: number) => (
+                              <li key={i}>{missing}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 3. Aufklappbares KI-Reasoning (Gedankengang der semantischen Korrektur) */}
+                    {freeTextEvaluation.reasoning && (
+                      <div className="rounded-xl border border-indigo-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setShowReasoning(!showReasoning)}
+                          className="w-full flex items-center justify-between p-2.5 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-indigo-50/50 dark:hover:bg-slate-800/50 transition-colors"
+                        >
+                          <span className="flex items-center gap-2 text-indigo-950 dark:text-indigo-200">
+                            <Brain className="w-4 h-4 text-indigo-500 shrink-0" />
+                            {lang === "de" ? "KI-Reasoning & Bewertungsabwägung einblenden" : "Show AI reasoning & grading balance"}
+                          </span>
+                          {showReasoning ? (
+                            <ChevronUp className="w-4 h-4 text-slate-400" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-slate-400" />
+                          )}
+                        </button>
+                        {showReasoning && (
+                          <div className="p-3.5 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 leading-relaxed bg-slate-50/60 dark:bg-slate-950/40 whitespace-pre-line animate-in fade-in duration-150">
+                            {freeTextEvaluation.reasoning}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 4. Identified and Missing Key Terms */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                       {freeTextEvaluation.detectedKeyTerms?.length > 0 && (
                         <div className="bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
@@ -597,7 +710,7 @@ export function ExamSessionModal({
                       {freeTextEvaluation.missingKeyTerms?.length > 0 && (
                         <div className="bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800">
                           <span className="font-bold text-amber-800 dark:text-amber-300 block mb-1">
-                            {lang === "de" ? "⚠ Fehlende Kernaspekte:" : "⚠ Missing Core Aspects:"}
+                            {lang === "de" ? "⚠ Vertiefungsbegriffe:" : "⚠ Deepening Terms:"}
                           </span>
                           <div className="flex flex-wrap gap-1">
                             {freeTextEvaluation.missingKeyTerms.map((term: string, i: number) => (
@@ -613,7 +726,7 @@ export function ExamSessionModal({
                       )}
                     </div>
 
-                    {/* Sample solution accordion */}
+                    {/* 5. Sample solution accordion */}
                     {currentQ.sampleSolution && (
                       <div className="pt-2 border-t border-indigo-100 dark:border-indigo-900/50">
                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
