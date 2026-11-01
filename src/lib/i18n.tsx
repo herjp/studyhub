@@ -355,7 +355,7 @@ export const translations: Record<Language, Translations> = {
     // Calendar & Exam Modal
     calendarTitle: "Klausuren-Kalender & Fristenplaner",
     calendarSubtitle: "Alle Prüfungstermine, Uhrzeiten und Hörsäle im Überblick",
-    addExamDateBtn: "+ Prüfungstermin eintragen",
+    addExamDateBtn: "Prüfungstermin eintragen",
     addExamModalTitle: "Klausurtermin eintragen & zuordnen",
     addExamModalDesc: "Trage Datum, Raum und Klausuraufbau ein.",
     selectModuleOrMatchLabel: "Modul auswählen oder per Suchbegriff automatisch zuordnen",
@@ -582,7 +582,7 @@ export const translations: Record<Language, Translations> = {
     // Calendar & Exam Modal
     calendarTitle: "Exam Calendar & Deadlines",
     calendarSubtitle: "All exam dates, schedules and lecture halls at a glance",
-    addExamDateBtn: "+ Schedule Exam Date",
+    addExamDateBtn: "Schedule Exam Date",
     addExamModalTitle: "Schedule & Match Exam Date",
     addExamModalDesc: "Enter exam date, room and format notes.",
     selectModuleOrMatchLabel: "Select course or auto-match via search term",

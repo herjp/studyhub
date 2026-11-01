@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   GraduationCap,
   BookOpen,
@@ -10,9 +10,14 @@ import {
   ArrowLeft,
   Check,
   Sparkles,
-  UploadCloud,
   Award,
   Layers,
+  HelpCircle,
+  X,
+  Compass,
+  ArrowUp,
+  ArrowDown,
+  Globe,
 } from "lucide-react";
 import { Portal } from "./Portal";
 import { useLanguage } from "@/lib/i18n";
@@ -22,114 +27,211 @@ interface OnboardingModalProps {
   onClose: () => void;
 }
 
-export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
-  const { lang } = useLanguage();
-  const [currentStep, setCurrentStep] = useState(0);
+interface TourStep {
+  id: string;
+  targetSelector?: string;
+  icon: any;
+  color: string;
+  titleDe: string;
+  titleEn: string;
+  badgeDe: string;
+  badgeEn: string;
+  descriptionDe: string;
+  descriptionEn: string;
+  bulletsDe: string[];
+  bulletsEn: string[];
+  placement?: "bottom" | "top" | "center";
+}
 
-  const steps = [
+export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
+  const { lang, setLang } = useLanguage();
+  const [currentStep, setCurrentStep] = useState(0);
+  const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
+  const [isInteractiveMode, setIsInteractiveMode] = useState(false);
+
+  const steps: TourStep[] = [
+    // Step 0: Welcome & Language Choice (Intro)
     {
+      id: "welcome",
       icon: GraduationCap,
       color: "from-indigo-600 to-sky-500",
-      title: lang === "de" ? "Willkommen bei StudyHub! 🎓⚡" : "Welcome to StudyHub! 🎓⚡",
-      badge: lang === "de" ? "Schritt 1 von 4: Übersicht" : "Step 1 of 4: Overview",
-      description:
-        lang === "de"
-          ? "Dein ganzheitlicher Studien- und Klausurmanager. Entwickelt, um dein Studium von Semester zu Semester zu organisieren, Leistungsziele zu überwachen und dich mit KI auf deine Klausuren vorzubereiten."
-          : "Your all-in-one study and exam manager. Organize semesters, track GPA and ECTS goals, and prepare for exams with adaptive AI.",
-      features: [
-        {
-          title: lang === "de" ? "Semester-Hierarchie" : "Semester Hierarchy",
-          desc: lang === "de" ? "Beliebig viele Semester anlegen, wechseln und archivieren." : "Create, switch, and organize as many semesters as you need.",
-        },
-        {
-          title: lang === "de" ? "ECTS- & GPA-Tracker" : "ECTS & GPA Tracker",
-          desc: lang === "de" ? "Automatisch nach ECTS-Punkten gewichteter Notenschnitt." : "Automatically weighted grade point average based on credits.",
-        },
-        {
-          title: lang === "de" ? "Cloud-Sync & Accounts" : "Cloud Sync & Accounts",
-          desc: lang === "de" ? "Eigener Account, geräteübergreifend synchronisiert." : "Personal account synced safely across all your devices.",
-        },
+      titleDe: "Willkommen bei StudyHub! 🎓⚡",
+      titleEn: "Welcome to StudyHub! 🎓⚡",
+      badgeDe: "Schritt 1 von 5: Einführung",
+      badgeEn: "Step 1 of 5: Welcome",
+      descriptionDe:
+        "Dein ganzheitlicher Studien- und Klausurmanager. Wähle deine bevorzugte Sprache und starte eine interaktive geführte Tour durch dein Dashboard.",
+      descriptionEn:
+        "Your all-in-one study and exam manager. Choose your preferred language and start an interactive guided tour through your dashboard.",
+      bulletsDe: [
+        "Semester & Fächer flexibel organisieren",
+        "Klausuren-Kalender mit automatischer Semester-Zuordnung",
+        "KI-Klausurtrainer mit Altklausuren & Spaced Repetition",
       ],
+      bulletsEn: [
+        "Organize semesters & courses with full flexibility",
+        "Exam calendar with smart automatic semester sorting",
+        "AI exam trainer with past papers & spaced repetition",
+      ],
+      placement: "center",
     },
+    // Step 1: Semester Tabs
     {
+      id: "semesters",
+      targetSelector: '[data-tour="semesters"]',
+      icon: Layers,
+      color: "from-indigo-600 to-violet-600",
+      titleDe: "Semester-Leiste & Organisation 📚",
+      titleEn: "Semester Bar & Organization 📚",
+      badgeDe: "Schritt 2 von 5: Semester",
+      badgeEn: "Step 2 of 5: Semesters",
+      descriptionDe:
+        "Hier verwaltest du alle deine Studiensemester (z. B. Wintersemester, Sommersemester).",
+      descriptionEn:
+        "Manage all your academic semesters here (e.g. Winter Semester, Summer Semester).",
+      bulletsDe: [
+        "Klicke auf '+ Semester', um ein neues Semester anzulegen.",
+        "Über das 3-Punkte-Menü (⋮) kannst du ein Semester als aktiv markieren, umbenennen oder löschen.",
+        "Das aktive Semester hebt automatisch deine aktuellen Fächer hervor.",
+      ],
+      bulletsEn: [
+        "Click '+ Add Semester' to create a new academic term.",
+        "Click the 3 dots (⋮) on any semester to set it as active, rename, or delete it.",
+        "Your active semester automatically highlights your current courses.",
+      ],
+      placement: "bottom",
+    },
+    // Step 2: Add Module
+    {
+      id: "add-module",
+      targetSelector: '[data-tour="add-module"]',
       icon: BookOpen,
       color: "from-sky-500 to-indigo-600",
-      title: lang === "de" ? "Semester & Fächer anlegen 📚" : "Manage Semesters & Courses 📚",
-      badge: lang === "de" ? "Schritt 2 von 4: Organisation" : "Step 2 of 4: Organization",
-      description:
-        lang === "de"
-          ? "Dein Account startet komplett sauber und blank. Du bestimmst, welche Semester und Fächer du belegst."
-          : "Your account starts completely clean. Customize semesters and courses to match your exact curriculum.",
-      features: [
-        {
-          title: lang === "de" ? "+ Neues Fach anlegen" : "+ Add Course",
-          desc: lang === "de" ? "Name, ECTS-Punkte und Prüfungstermin eintragen." : "Enter course title, credit points, and exam date.",
-        },
-        {
-          title: lang === "de" ? "Klausuraufbau-Notizen" : "Exam Format Notes",
-          desc: lang === "de" ? "Trage Dozentenhinweise ein (z. B. '90 Min, 30% MC, Spickzettel erlaubt')." : "Add professor tips (e.g., '90 mins, 30% MC, 1 cheat sheet allowed').",
-        },
-        {
-          title: lang === "de" ? "ECTS-Rechner & Analyse" : "ECTS Calculator",
-          desc: lang === "de" ? "Klicke im Header auf ECTS für Semesterübersichten und Zielwert-Simulation." : "Click ECTS in the header for semester analytics and pace simulation.",
-        },
+      titleDe: "Fächer & Module anlegen ✍️",
+      titleEn: "Add Courses & Modules ✍️",
+      badgeDe: "Schritt 3 von 5: Fächer",
+      badgeEn: "Step 3 of 5: Courses",
+      descriptionDe:
+        "Hier erstellst du deine Lehrveranstaltungen und Prüfungstermine für das gewählte Semester.",
+      descriptionEn:
+        "Create courses, credit points (ECTS), and exam schedules for your chosen semester.",
+      bulletsDe: [
+        "Trage ECTS-Punkte, Klausurdatum und Uhrzeit ein.",
+        "Notizen zum Prüfungsformat: Hinterlege Dozenten-Tipps (z. B. '90 Min, 30% MC, Formelsammlung erlaubt').",
+        "Tagesaktuelle Live-Countdowns warnen dich automatisch vor anstehenden Klausuren.",
       ],
+      bulletsEn: [
+        "Enter ECTS credits, exam date, and time.",
+        "Exam format notes: Save instructor advice (e.g., '90 mins, 30% MC, 1 cheat sheet allowed').",
+        "Live day countdowns warn you automatically before upcoming exams.",
+      ],
+      placement: "bottom",
     },
+    // Step 3: Calendar & .ics Import
     {
+      id: "calendar",
+      targetSelector: '[data-tour="calendar-link"]',
       icon: Calendar,
-      color: "from-indigo-600 to-purple-600",
-      title: lang === "de" ? "Klausuren-Kalender & .ics-Import 📅" : "Exam Calendar & .ics Import 📅",
-      badge: lang === "de" ? "Schritt 3 von 4: Termine" : "Step 3 of 4: Schedule",
-      description:
-        lang === "de"
-          ? "Behalte alle Fristen und Prüfungstermine im Blick – ohne manuelles Abtippen!"
-          : "Keep track of all deadlines and exams effortlessly without manual typing!",
-      features: [
-        {
-          title: lang === "de" ? "Campus .ics-Import" : "Campus .ics Import",
-          desc: lang === "de" ? "Exportiere deinen Kalender aus Moodle, HISinOne oder Stud.IP und lade die Datei mit 1 Klick hoch." : "Export from Moodle or campus portal and import with 1 click.",
-        },
-        {
-          title: lang === "de" ? "Smart Auto-Match" : "Smart Auto-Match",
-          desc: lang === "de" ? "Erkennt automatisch Prüfungen und ordnet Termine deinen Fächern zu." : "Detects exams automatically and assigns them to your courses.",
-        },
-        {
-          title: lang === "de" ? "Prüfungs-Countdowns" : "Exam Countdowns",
-          desc: lang === "de" ? "Tagesgenaue Countdown-Anzeige auf deinen Modulkarten." : "Live countdowns and urgency warnings on your module cards.",
-        },
-      ],
-    },
-    {
-      icon: BrainCircuit,
       color: "from-purple-600 to-indigo-600",
-      title: lang === "de" ? "KI-Klausurtrainer & Spaced Repetition 🧠" : "AI Exam Trainer & Spaced Repetition 🧠",
-      badge: lang === "de" ? "Schritt 4 von 4: Klausurvorbereitung" : "Step 4 of 4: Exam Prep",
-      description:
-        lang === "de"
-          ? "Das Herzstück von StudyHub: Verwandle Vorlesungsfolien und Altklausuren in echtes Prüfungswissen."
-          : "The core of StudyHub: Turn lecture slides and past exams into true mastery.",
-      features: [
-        {
-          title: lang === "de" ? "RAG-Dokumenten-Hub" : "RAG Document Hub",
-          desc: lang === "de" ? "Skripte hochladen – die KI lernt den Stil deiner Dozenten." : "Upload slides – the AI adapts to your instructor's exact style.",
-        },
-        {
-          title: lang === "de" ? "Prüfungsreife-Score" : "Exam Readiness Score",
-          desc: lang === "de" ? "3-Zonen-Reifebalken (Rot, Gelb, Grün) zeigt deinen aktuellen Lernstand." : "Traffic-light readiness bar shows your exam readiness.",
-        },
-        {
-          title: lang === "de" ? "Spaced Repetition & Tagesziel" : "Spaced Repetition & Daily Goal",
-          desc: lang === "de" ? "Wiederhole Fragen nach Vergessenskurve (1, 3, 7, 14 Tage) bis zur Klausur." : "Review questions using spaced intervals (1, 3, 7, 14 days).",
-        },
+      titleDe: "Klausuren-Kalender & .ics-Import 📅",
+      titleEn: "Exam Calendar & .ics Import 📅",
+      badgeDe: "Schritt 4 von 5: Termine",
+      badgeEn: "Step 4 of 5: Schedule",
+      descriptionDe:
+        "Dein zentraler Kalender mit Raumsuche (TU Wien Maps, Google Maps, TUM Nav) und .ics-Import.",
+      descriptionEn:
+        "Your central calendar with smart room navigation (TU Wien Maps, Google Maps, TUM Nav) and .ics import.",
+      bulletsDe: [
+        "Importiere deinen Stundenplan aus Moodle, TISS, TUMonline etc. mit einem Klick.",
+        "Automatische Semester-Erkennung: Termine in der Zukunft (z. B. April) werden automatisch dem nächsten Semester zugeordnet!",
+        "Klicke auf Hörsäle für direkte Navigation auf Google Maps oder TU Wien Maps.",
       ],
+      bulletsEn: [
+        "Import your schedule from Moodle or campus portal via .ics with 1 click.",
+        "Smart semester matching: Future terms (e.g. April) are automatically grouped into the right semester!",
+        "Click on rooms for instant navigation via Google Maps, TUM Nav, or TU Wien Maps.",
+      ],
+      placement: "bottom",
+    },
+    // Step 4: ECTS Tracker & AI Settings
+    {
+      id: "ects-tracker",
+      targetSelector: '[data-tour="ects-tracker"]',
+      icon: Award,
+      color: "from-amber-500 to-indigo-600",
+      titleDe: "ECTS-Tracker & KI-Trainer 🧠✨",
+      titleEn: "ECTS Tracker & AI Trainer 🧠✨",
+      badgeDe: "Schritt 5 von 5: Rechner & KI",
+      badgeEn: "Step 5 of 5: Analytics & AI",
+      descriptionDe:
+        "Im Header behältst du deinen Notenschnitt (GPA) und deinen ECTS-Fortschritt im Blick.",
+      descriptionEn:
+        "In the header you track your grade point average (GPA) and degree completion progress.",
+      bulletsDe: [
+        "Klicke auf ECTS für den interaktiven ECTS-Rechner und Zielwert-Simulationen.",
+        "Im KI-Trainer kannst du Vorlesungsfolien und Altklausuren hochladen.",
+        "Adaptive Prüfungsfragen mit Spaced Repetition (Fahrschul-Reifebalken) bereiten dich optimal vor.",
+      ],
+      bulletsEn: [
+        "Click ECTS for the interactive credit calculator and graduation pace simulation.",
+        "In the AI trainer, upload lecture slides and past exams to generate real practice questions.",
+        "Adaptive Spaced Repetition (Readiness Score) ensures you remember everything on exam day.",
+      ],
+      placement: "bottom",
     },
   ];
 
   const current = steps[currentStep];
 
+  // Update target rect when step changes or window resizes
+  const updateTargetRect = useCallback(() => {
+    if (!current.targetSelector) {
+      setTargetRect(null);
+      return;
+    }
+    const el = document.querySelector(current.targetSelector);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      const rect = el.getBoundingClientRect();
+      setTargetRect(rect);
+    } else {
+      setTargetRect(null);
+    }
+  }, [current.targetSelector]);
+
+  useEffect(() => {
+    if (isOpen) {
+      updateTargetRect();
+      const handleResize = () => updateTargetRect();
+      window.addEventListener("resize", handleResize);
+      window.addEventListener("scroll", handleResize, { passive: true });
+      return () => {
+        window.removeEventListener("resize", handleResize);
+        window.removeEventListener("scroll", handleResize);
+      };
+    }
+  }, [isOpen, currentStep, updateTargetRect]);
+
+  // Keyboard navigation: Arrow Left/Right, Escape
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleFinish();
+      } else if (e.key === "ArrowRight") {
+        handleNext();
+      } else if (e.key === "ArrowLeft") {
+        handlePrev();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, currentStep]);
+
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep((prev) => prev + 1);
+      setIsInteractiveMode(true);
     } else {
       handleFinish();
     }
@@ -142,80 +244,196 @@ export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
   };
 
   const handleFinish = () => {
-    localStorage.setItem("studyhub_onboarding_seen", "true");
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("studyhub_onboarding_seen", "true");
+      }
+    } catch {
+      // Ignore in restricted private storage mode
+    }
     onClose();
   };
 
   if (!isOpen) return null;
 
+  // Calculate card position when pointing to a target
+  const getCardStyle = (): React.CSSProperties => {
+    if (!targetRect || current.placement === "center") {
+      return {};
+    }
+
+    const cardWidth = Math.min(window.innerWidth - 32, 480);
+    let left = targetRect.left + targetRect.width / 2 - cardWidth / 2;
+    // Keep within viewport boundaries
+    left = Math.max(16, Math.min(window.innerWidth - cardWidth - 16, left));
+
+    const spaceBelow = window.innerHeight - targetRect.bottom;
+    const placeAbove = spaceBelow < 320 && targetRect.top > 320;
+
+    if (placeAbove) {
+      return {
+        position: "fixed",
+        left: `${left}px`,
+        bottom: `${window.innerHeight - targetRect.top + 16}px`,
+        width: `${cardWidth}px`,
+        zIndex: 120,
+      };
+    }
+
+    return {
+      position: "fixed",
+      left: `${left}px`,
+      top: `${Math.min(window.innerHeight - 380, targetRect.bottom + 16)}px`,
+      width: `${cardWidth}px`,
+      zIndex: 120,
+    };
+  };
+
+  const cardStyle = getCardStyle();
+  const hasTarget = Boolean(targetRect && current.targetSelector);
+
   return (
     <Portal>
-      <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/65 backdrop-blur-md p-4 overflow-y-auto">
-        <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 my-auto animate-in fade-in zoom-in-95 duration-150 flex flex-col">
-          {/* Header Badge & Close */}
-          <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800">
-              <Sparkles className="w-3 h-3 text-indigo-600" />
-              {current.badge}
-            </span>
+      {/* 1. Backdrop */}
+      <div className="fixed inset-0 z-[105] bg-black/60 backdrop-blur-sm transition-opacity duration-300 pointer-events-auto">
+        {/* Spotlight cutout border around targeted element */}
+        {hasTarget && targetRect && (
+          <div
+            style={{
+              top: `${targetRect.top - 6}px`,
+              left: `${targetRect.left - 6}px`,
+              width: `${targetRect.width + 12}px`,
+              height: `${targetRect.height + 12}px`,
+            }}
+            className="fixed pointer-events-none rounded-2xl ring-4 ring-indigo-500 ring-offset-4 ring-offset-black/50 shadow-[0_0_0_9999px_rgba(0,0,0,0.65)] animate-pulse transition-all duration-300 z-[110]"
+          />
+        )}
+      </div>
 
-            <button
-              onClick={handleFinish}
-              className="text-xs font-semibold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-            >
-              {lang === "de" ? "Überspringen ✕" : "Skip ✕"}
-            </button>
+      {/* 2. Interactive Tour Card */}
+      <div
+        className={
+          hasTarget
+            ? "pointer-events-auto animate-in fade-in zoom-in-95 duration-200"
+            : "fixed inset-0 z-[115] flex items-center justify-center p-4 overflow-y-auto pointer-events-auto"
+        }
+      >
+        <div
+          style={cardStyle}
+          className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-200 dark:border-slate-800 my-auto flex flex-col relative z-[120] ring-1 ring-black/10 dark:ring-white/10"
+        >
+          {/* Top Header: Badge, Language Toggle & Close */}
+          <div className="flex items-center justify-between gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800">
+                <Sparkles className="w-3 h-3 text-indigo-600" />
+                {lang === "de" ? current.badgeDe : current.badgeEn}
+              </span>
+            </div>
+
+            {/* Language Switcher Button in Tour Card */}
+            <div className="flex items-center gap-1.5">
+              <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-0.5 text-xs font-bold border border-slate-200/70 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setLang("de")}
+                  className={`px-2 py-0.5 rounded-lg transition-all ${
+                    lang === "de"
+                      ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                  title="Auf Deutsch umschalten"
+                >
+                  🇩🇪 DE
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLang("en")}
+                  className={`px-2 py-0.5 rounded-lg transition-all ${
+                    lang === "en"
+                      ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs"
+                      : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                  }`}
+                  title="Switch to English"
+                >
+                  🇬🇧 EN
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleFinish}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors ml-1"
+                title={lang === "de" ? "Tour beenden" : "Close tour"}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
+          {/* Interactive Arrow Pointer indicating direction to real element */}
+          {hasTarget && targetRect && (
+            <div className="pt-2 flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 animate-bounce">
+              {window.innerHeight - targetRect.bottom < 320 && targetRect.top > 320 ? (
+                <>
+                  <ArrowDown className="w-4 h-4" />
+                  <span>{lang === "de" ? "Hier unten verankert:" : "Target element below:"}</span>
+                </>
+              ) : (
+                <>
+                  <ArrowUp className="w-4 h-4" />
+                  <span>{lang === "de" ? "Blick nach oben gerichtet:" : "Look at the highlighted element above:"}</span>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Slide Content */}
-          <div className="py-6 space-y-5">
+          <div className="py-4 space-y-4">
             <div className="flex items-center gap-3.5">
               <div
-                className={`w-12 h-12 rounded-2xl bg-gradient-to-tr ${current.color} text-white flex items-center justify-center shadow-md shadow-indigo-500/20 flex-shrink-0`}
+                className={`w-11 h-11 rounded-2xl bg-gradient-to-tr ${current.color} text-white flex items-center justify-center shadow-md shadow-indigo-500/20 flex-shrink-0`}
               >
-                <current.icon className="w-6 h-6" />
+                <current.icon className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
-                  {current.title}
+                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
+                  {lang === "de" ? current.titleDe : current.titleEn}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  {current.description}
+                  {lang === "de" ? current.descriptionDe : current.descriptionEn}
                 </p>
               </div>
             </div>
 
-            {/* Feature Highlights Grid */}
-            <div className="space-y-2.5 pt-1">
-              {current.features.map((feat, idx) => (
+            {/* Bullet Highlights */}
+            <div className="space-y-2 pt-1">
+              {(lang === "de" ? current.bulletsDe : current.bulletsEn).map((bullet, idx) => (
                 <div
                   key={idx}
-                  className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 flex items-start gap-3"
+                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300"
                 >
-                  <div className="w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-[10px] font-bold mt-0.5 flex-shrink-0">
+                  <div className="w-4 h-4 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-[10px] font-bold mt-0.5 flex-shrink-0">
                     ✓
                   </div>
-                  <div className="min-w-0">
-                    <h5 className="text-xs font-bold text-slate-900 dark:text-white">
-                      {feat.title}
-                    </h5>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-normal">
-                      {feat.desc}
-                    </p>
-                  </div>
+                  <span className="leading-snug">{bullet}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Footer Navigation */}
+          {/* Footer Controls: Dots, Back, Next */}
           <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800 flex-shrink-0">
-            {/* Step Indicators */}
+            {/* Step Indicator Dots */}
             <div className="flex items-center gap-1.5">
               {steps.map((_, idx) => (
                 <button
                   key={idx}
-                  onClick={() => setCurrentStep(idx)}
+                  type="button"
+                  onClick={() => {
+                    setCurrentStep(idx);
+                    setIsInteractiveMode(idx > 0);
+                  }}
                   className={`h-2 rounded-full transition-all ${
                     currentStep === idx
                       ? "w-6 bg-indigo-600"
@@ -231,7 +449,7 @@ export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
                 <button
                   type="button"
                   onClick={handlePrev}
-                  className="inline-flex items-center gap-1 px-3.5 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
                   {lang === "de" ? "Zurück" : "Back"}
@@ -241,12 +459,12 @@ export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
               <button
                 type="button"
                 onClick={handleNext}
-                className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/20 transition-all hover:scale-[1.02]"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/20 transition-all hover:scale-[1.02]"
               >
                 {currentStep === steps.length - 1 ? (
                   <>
                     <Check className="w-4 h-4" />
-                    {lang === "de" ? "Los geht's!" : "Get Started!"}
+                    {lang === "de" ? "Tour abschließen! 🎯" : "Finish Tour! 🎯"}
                   </>
                 ) : (
                   <>

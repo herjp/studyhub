@@ -280,6 +280,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
           <div className="hidden md:flex items-center gap-2.5 lg:gap-3 flex-shrink-0 mx-auto">
             {/* ECTS Tracker (Clickable for ECTS Calculator & Semester Analytics) */}
             <div
+              data-tour="ects-tracker"
               onClick={() => setShowEctsModal(true)}
               title={lang === "de" ? "Klicken für ECTS-Rechner & Semesteranalyse" : "Click for ECTS Calculator & Semester Analytics"}
               className="bg-slate-50/90 dark:bg-slate-800/80 hover:bg-indigo-50/60 dark:hover:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 rounded-xl px-3 py-1.5 border border-slate-200/80 dark:border-slate-700/60 flex items-center gap-2.5 cursor-pointer transition-all group shadow-sm hover:shadow"

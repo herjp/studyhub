@@ -3,6 +3,47 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { cleanModuleName, classifyEventType, extractCourseCode, groupIcsEventsByCourse, ParsedIcsEvent } from "@/lib/ics-parser";
 
+/**
+ * Determine the academic semester based on the date of a course/event.
+ * In European / DACH universities:
+ * - Wintersemester: October 1st to March 31st (e.g. 01.10.2025 - 31.03.2026 is Wintersemester 2025/26)
+ * - Sommersemester: April 1st to September 30th (e.g. 01.04.2026 - 30.09.2026 is Sommersemester 2026)
+ */
+function getSemesterInfoForDate(date: Date): { name: string; type: "WINTER" | "SUMMER"; year: number; order: number } {
+  const y = date.getFullYear();
+  const m = date.getMonth(); // 0 = Jan, 1 = Feb, 2 = Mar, 3 = Apr, ... 8 = Sep, 9 = Oct, 10 = Nov, 11 = Dec
+
+  // Months Oct (9), Nov (10), Dec (11): Wintersemester y/(y+1)
+  if (m >= 9) {
+    const nextYearShort = (y + 1).toString().slice(-2);
+    return {
+      name: `Wintersemester ${y}/${nextYearShort}`,
+      type: "WINTER",
+      year: y,
+      order: y * 2 + 1,
+    };
+  }
+  // Months Jan (0), Feb (1), Mar (2): Wintersemester (y-1)/y
+  else if (m <= 2) {
+    const yearShort = y.toString().slice(-2);
+    return {
+      name: `Wintersemester ${y - 1}/${yearShort}`,
+      type: "WINTER",
+      year: y - 1,
+      order: (y - 1) * 2 + 1,
+    };
+  }
+  // Months Apr (3) to Sep (8): Sommersemester y
+  else {
+    return {
+      name: `Sommersemester ${y}`,
+      type: "SUMMER",
+      year: y,
+      order: y * 2,
+    };
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUser();
@@ -34,24 +75,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // Find user's active semester for new modules
-    let targetSemester = await prisma.semester.findFirst({
-      where: {
-        isActive: true,
-        userId: user.id,
-      },
+    // Fetch all user's existing semesters
+    const userSemesters = await prisma.semester.findMany({
+      where: { userId: user.id },
+      orderBy: { order: "asc" },
     });
 
-    if (!targetSemester) {
-      targetSemester = await prisma.semester.findFirst({
-        where: { userId: user.id },
-        orderBy: { order: "asc" },
-      });
-    }
-
-    if (!targetSemester) {
-      return NextResponse.json({ error: "Kein aktives Semester gefunden." }, { status: 400 });
-    }
+    // Default fallback semester (active or first)
+    const activeSemester = userSemesters.find((s) => s.isActive) || userSemesters[0] || null;
 
     // Fetch existing modules for mapping
     const existingModules = await prisma.module.findMany({
@@ -97,6 +128,7 @@ export async function POST(req: Request) {
     let createdModulesCount = 0;
     let linkedModulesCount = 0;
     let importedEventsCount = 0;
+    let createdSemestersCount = 0;
 
     for (const group of groupsToProcess) {
       if (group.action === "ignore") continue;
@@ -113,6 +145,78 @@ export async function POST(req: Request) {
       const primaryExamDate = primaryExam?.dateStr ? new Date(primaryExam.dateStr) : null;
       const primaryExamTime = primaryExam?.timeStr || null;
       const primaryExamLocation = primaryExam?.location || null;
+
+      // Collect all valid dates in this course group to determine its semester
+      const eventDates: Date[] = [];
+      if (primaryExamDate && !isNaN(primaryExamDate.getTime())) {
+        eventDates.push(primaryExamDate);
+      }
+      for (const ev of subEvents) {
+        if (ev.dateStr) {
+          const d = new Date(ev.dateStr);
+          if (!isNaN(d.getTime())) eventDates.push(d);
+        }
+      }
+
+      // Determine target semester based on event dates
+      let groupSemester: any = activeSemester;
+
+      if (eventDates.length > 0) {
+        // Sort dates ascending
+        eventDates.sort((a, b) => a.getTime() - b.getTime());
+        // Pick representative date (earliest event in the series)
+        const repDate = eventDates[0];
+        const semInfo = getSemesterInfoForDate(repDate);
+
+        // Find if user already has a semester matching this term
+        let matchedSemester = userSemesters.find((s) => {
+          const sName = s.name.toLowerCase();
+          const targetName = semInfo.name.toLowerCase();
+          if (sName === targetName) return true;
+          if (semInfo.type === "SUMMER") {
+            return (
+              sName.includes(semInfo.year.toString()) &&
+              (sName.includes("sommer") || sName.includes("sose") || sName.includes("ss"))
+            );
+          } else {
+            const shortNext = (semInfo.year + 1).toString().slice(-2);
+            return (
+              (sName.includes(semInfo.year.toString()) || sName.includes(shortNext)) &&
+              (sName.includes("winter") || sName.includes("wise") || sName.includes("ws"))
+            );
+          }
+        });
+
+        if (!matchedSemester) {
+          // Automatically create the new semester for future or past terms!
+          matchedSemester = await prisma.semester.create({
+            data: {
+              userId: user.id,
+              name: semInfo.name,
+              isActive: userSemesters.length === 0, // only active if user had no existing semester
+              order: semInfo.order,
+            },
+          });
+          userSemesters.push(matchedSemester);
+          createdSemestersCount++;
+        }
+
+        groupSemester = matchedSemester;
+      }
+
+      if (!groupSemester) {
+        // Fallback: create default semester if completely blank
+        groupSemester = await prisma.semester.create({
+          data: {
+            userId: user.id,
+            name: "Wintersemester 2025/26",
+            isActive: true,
+            order: 1,
+          },
+        });
+        userSemesters.push(groupSemester);
+        createdSemestersCount++;
+      }
 
       let targetModule: any = null;
 
@@ -135,11 +239,11 @@ export async function POST(req: Request) {
         }
       }
 
-      // If create_new or no existing module matched, create the module EXACTLY ONCE!
+      // If create_new or no existing module matched, create the module EXACTLY ONCE in groupSemester!
       if (!targetModule && group.action !== "ignore") {
-        // Double-check if a module with this clean name already exists in targetSemester
+        // Check if a module with this clean name already exists in groupSemester
         const existingSameName = existingModules.find(
-          (m) => m.semesterId === targetSemester!.id && m.name.toLowerCase().trim() === modName.toLowerCase().trim()
+          (m) => m.semesterId === groupSemester.id && m.name.toLowerCase().trim() === modName.toLowerCase().trim()
         );
 
         if (existingSameName) {
@@ -148,7 +252,7 @@ export async function POST(req: Request) {
         } else {
           targetModule = await prisma.module.create({
             data: {
-              semesterId: targetSemester.id,
+              semesterId: groupSemester.id,
               name: modName,
               code: courseCode,
               ects: 5,
@@ -208,12 +312,15 @@ export async function POST(req: Request) {
       }
     }
 
+    const semInfoStr = createdSemestersCount > 0 ? ` (${createdSemestersCount} neue Semester wie z. B. Sommersemester automatisch angelegt)` : "";
+
     return NextResponse.json({
       success: true,
       createdModulesCount,
       linkedModulesCount,
       importedEventsCount,
-      message: `Erfolgreich importiert: ${createdModulesCount} neue Module erstellt, ${linkedModulesCount} Module aktualisiert, ${importedEventsCount} Vorlesungs- & Prüfungstermine eingetragen!`,
+      createdSemestersCount,
+      message: `Erfolgreich importiert: ${createdModulesCount} neue Module erstellt, ${linkedModulesCount} Module aktualisiert, ${importedEventsCount} Vorlesungs- & Prüfungstermine eingetragen!${semInfoStr}`,
     });
   } catch (error: any) {
     console.error("Error importing ICS events:", error);

@@ -442,6 +442,14 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           "January", "February", "March", "April", "May", "June",
           "July", "August", "September", "October", "November", "December",
         ];
+  const currentProviderObj = SUPPORTED_UNIVERSITIES.find((u) => u.id === preferredUniversity);
+  const activeMapName =
+    preferredUniversity === "google_maps"
+      ? "Google Maps"
+      : preferredUniversity === "other"
+      ? (customUniversity || "Google Maps")
+      : (currentProviderObj?.mapSystem || currentProviderObj?.shortName || "Campus Maps");
+
   const firstDayOfMonth = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
@@ -517,7 +525,13 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
               title={lang === "de" ? "Campus für Raumsuche & Hörsäle auswählen" : "Select university for room navigation"}
             >
               <GraduationCap className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
-              <span>{preferredUniversity === "other" && customUniversity ? customUniversity : (SUPPORTED_UNIVERSITIES.find((u) => u.id === preferredUniversity)?.shortName || "TU Wien")}</span>
+              <span>
+                {preferredUniversity === "google_maps"
+                  ? "Google Maps"
+                  : preferredUniversity === "other" && customUniversity
+                  ? customUniversity
+                  : (SUPPORTED_UNIVERSITIES.find((u) => u.id === preferredUniversity)?.shortName || "TU Wien")}
+              </span>
               <ChevronDown className="w-3 h-3 opacity-60" />
             </button>
 
@@ -590,7 +604,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
             onClick={() => handleOpenAddForDate(new Date())}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all"
           >
-            <Plus className="w-3.5 h-3.5" /> {t.addExamDateBtn}
+            <Plus className="w-3.5 h-3.5" /> {t.addExamDateBtn.replace(/^\+\s*/, "")}
           </button>
 
           {/* Reset Calendar Button */}
@@ -676,10 +690,14 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           </button>
         </div>
 
-        {/* TU Wien Maps Hint */}
-        <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+        {/* Dynamic Campus / Navigation Map Provider Hint */}
+        <div
+          onClick={() => setShowUniDropdown(true)}
+          className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60 cursor-pointer transition-colors"
+          title={lang === "de" ? "Klicken, um Campus-Navigationssystem zu wechseln" : "Click to change campus map provider"}
+        >
           <MapPin className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
-          <span>Hörsäle & Räume mit <strong>TU Wien Maps</strong> verlinkt</span>
+          <span>Hörsäle & Räume mit <strong>{activeMapName}</strong> verlinkt</span>
         </div>
       </div>
 

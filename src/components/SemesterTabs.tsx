@@ -41,7 +41,7 @@ export function SemesterTabs({
   const { lang, t } = useLanguage();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingSemester, setEditingSemester] = useState<SemesterType | null>(null);
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ id: string; top: number; right: number } | null>(null);
 
   // Form states
   const [name, setName] = useState("");
@@ -129,7 +129,7 @@ export function SemesterTabs({
   };
 
   const handleSetActive = async (id: string) => {
-    setActiveMenuId(null);
+    setMenuAnchor(null);
     try {
       await fetch("/api/semesters", {
         method: "PUT",
@@ -144,7 +144,7 @@ export function SemesterTabs({
   };
 
   const handleDelete = async (id: string) => {
-    setActiveMenuId(null);
+    setMenuAnchor(null);
     if (!confirm("Semester wirklich löschen? Alle zugehörigen Module werden ebenfalls gelöscht.")) {
       return;
     }
@@ -216,54 +216,85 @@ export function SemesterTabs({
                 </div>
               </div>
 
-              {/* 3-Dots Menu */}
+              {/* 3-Dots Menu Trigger */}
               <div
                 className="relative"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setActiveMenuId(activeMenuId === sem.id ? null : sem.id);
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  if (menuAnchor?.id === sem.id) {
+                    setMenuAnchor(null);
+                  } else {
+                    setMenuAnchor({
+                      id: sem.id,
+                      top: rect.bottom + 6,
+                      right: window.innerWidth - rect.right,
+                    });
+                  }
                 }}
               >
                 <button
                   type="button"
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60"
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors"
                 >
                   <MoreVertical className="w-3.5 h-3.5" />
                 </button>
-
-                {activeMenuId === sem.id && (
-                  <div className="absolute right-0 top-full mt-1 w-44 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl z-20 py-1 text-xs">
-                    {!sem.isActive && (
-                      <button
-                        onClick={() => handleSetActive(sem.id)}
-                        className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-emerald-600 dark:text-emerald-400 font-semibold"
-                      >
-                        <Check className="w-3.5 h-3.5" /> {t.setAsActive}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setActiveMenuId(null);
-                        setEditingSemester(sem);
-                        setName(sem.name);
-                      }}
-                      className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" /> {t.rename}
-                    </button>
-                    <button
-                      onClick={() => handleDelete(sem.id)}
-                      className="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> {t.deleteSemester}
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Floating 3-Dots Menu in Foreground (outside horizontal overflow) */}
+      {menuAnchor && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-transparent"
+            onClick={() => setMenuAnchor(null)}
+          />
+          {(() => {
+            const sem = semesters.find((s) => s.id === menuAnchor.id);
+            if (!sem) return null;
+            return (
+              <div
+                style={{ top: `${menuAnchor.top}px`, right: `${menuAnchor.right}px` }}
+                className="fixed z-50 w-48 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 text-xs animate-in fade-in zoom-in-95 duration-100 ring-1 ring-black/5 dark:ring-white/10 space-y-0.5"
+              >
+                {!sem.isActive && (
+                  <button
+                    onClick={() => {
+                      handleSetActive(sem.id);
+                      setMenuAnchor(null);
+                    }}
+                    className="w-full px-3 py-2 text-left rounded-xl flex items-center gap-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold transition-colors"
+                  >
+                    <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" /> {t.setAsActive}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    setEditingSemester(sem);
+                    setName(sem.name);
+                  }}
+                  className="w-full px-3 py-2 text-left rounded-xl flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+                >
+                  <Edit2 className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" /> {t.rename}
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    handleDelete(sem.id);
+                  }}
+                  className="w-full px-3 py-2 text-left rounded-xl flex items-center gap-2 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-medium transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5 flex-shrink-0" /> {t.deleteSemester}
+                </button>
+              </div>
+            );
+          })()}
+        </>
+      )}
 
       {/* Add Semester Dialog */}
       {showAddModal && (
