@@ -1301,11 +1301,11 @@ function ModuleDetailContent() {
 
               {/* Countdown badge & info */}
               <div className="flex items-center gap-4 text-xs text-slate-500 pt-1">
-                {daysLeft !== null && daysLeft !== undefined ? (
+                {daysLeft !== null && daysLeft !== undefined && moduleData?.examDate ? (
                   <span className="inline-flex items-center gap-1.5 font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1 rounded-xl">
                     <Calendar className="w-3.5 h-3.5" />
                     Klausur in {daysLeft} Tagen (
-                    {new Date(moduleData.examDate).toLocaleDateString("de-DE")})
+                    {!isNaN(new Date(moduleData.examDate).getTime()) ? new Date(moduleData.examDate).toLocaleDateString("de-DE") : moduleData.examDate})
                   </span>
                 ) : (
                   <span className="text-slate-400 flex items-center gap-1">
@@ -1438,10 +1438,12 @@ function ModuleDetailContent() {
                                 {icon} {evt.eventType === "EXAM" ? "Klausur" : evt.eventType === "TEST" ? "Test" : evt.eventType === "EXERCISE" ? "Übung" : "Vorlesung"}
                               </span>
                               <span className="text-[11px] font-semibold text-slate-500">
-                                {new Date(evt.date).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
-                                  day: "2-digit",
-                                  month: "2-digit",
-                                })}
+                                {evt.date && !isNaN(new Date(evt.date).getTime())
+                                  ? new Date(evt.date).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
+                                      day: "2-digit",
+                                      month: "2-digit",
+                                    })
+                                  : evt.date || ""}
                               </span>
                             </div>
                             <div className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={evt.title}>
@@ -2127,7 +2129,7 @@ function ModuleDetailContent() {
                                 </span>
                               )}
                               <span>•</span>
-                              <span>{new Date(doc.createdAt).toLocaleDateString(lang === "de" ? "de-DE" : "en-US")}</span>
+                              <span>{doc.createdAt && !isNaN(new Date(doc.createdAt).getTime()) ? new Date(doc.createdAt).toLocaleDateString(lang === "de" ? "de-DE" : "en-US") : ""}</span>
                             </div>
                           </div>
                         </div>

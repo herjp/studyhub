@@ -42,8 +42,8 @@ export interface CampusMapInfo {
  * Clean room / location string by stripping noise like "siehe Zoomlink: ",
  * trailing building codes like " - MWB", " - INF", " - CH", etc.
  */
-export function sanitizeRoomLocation(rawLocation: string): { cleanRoom: string; extractedUrl: string | null } {
-  if (!rawLocation) return { cleanRoom: "", extractedUrl: null };
+export function sanitizeRoomLocation(rawLocation?: string | null): { cleanRoom: string; extractedUrl: string | null } {
+  if (!rawLocation || typeof rawLocation !== "string") return { cleanRoom: "", extractedUrl: null };
 
   // 1. Check for embedded URL
   const urlRegex = /(https?:\/\/[^\s"',;<>]+)/i;
@@ -70,7 +70,7 @@ export function getCampusMapInfo(
   preferredUniversity: string = "tu_wien",
   customUniversityName?: string
 ): CampusMapInfo {
-  if (!rawLocation || !rawLocation.trim()) {
+  if (!rawLocation || typeof rawLocation !== "string" || !rawLocation.trim()) {
     return {
       isOnline: false,
       isTuWien: false,

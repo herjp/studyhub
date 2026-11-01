@@ -64,10 +64,14 @@ export function IcsImportModal({
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedUni = localStorage.getItem("studyhub_preferred_university");
-      if (savedUni) setPreferredUniversity(savedUni);
-      const savedCustom = localStorage.getItem("studyhub_custom_university");
-      if (savedCustom) setCustomUniversity(savedCustom);
+      try {
+        const savedUni = localStorage.getItem("studyhub_preferred_university");
+        if (savedUni) setPreferredUniversity(savedUni);
+        const savedCustom = localStorage.getItem("studyhub_custom_university");
+        if (savedCustom) setCustomUniversity(savedCustom);
+      } catch (e) {
+        console.warn("Storage restricted:", e);
+      }
     }
   }, []);
 

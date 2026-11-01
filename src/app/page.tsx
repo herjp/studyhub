@@ -59,14 +59,15 @@ export default function HomePage() {
       const res = await fetch("/api/semesters");
       if (res.ok) {
         const data = await res.json();
-        setSemesters(data);
+        const semesterList = Array.isArray(data) ? data : [];
+        setSemesters(semesterList);
 
         // Auto select active semester or first semester
-        if (data.length > 0) {
-          const exists = data.some((s: SemesterType) => s.id === selectedSemesterId);
+        if (semesterList.length > 0) {
+          const exists = semesterList.some((s: SemesterType) => s.id === selectedSemesterId);
           if (!selectedSemesterId || !exists) {
-            const active = data.find((s: SemesterType) => s.isActive);
-            setSelectedSemesterId(active ? active.id : data[0].id);
+            const active = semesterList.find((s: SemesterType) => s.isActive);
+            setSelectedSemesterId(active ? active.id : semesterList[0].id);
           }
         } else {
           setSelectedSemesterId(null);
@@ -86,7 +87,7 @@ export default function HomePage() {
       const res = await fetch(`/api/modules?semesterId=${semesterId}`);
       if (res.ok) {
         const data = await res.json();
-        setModules(data);
+        setModules(Array.isArray(data) ? data : []);
       }
     } catch (err) {
       console.error("Error fetching modules:", err);
@@ -123,10 +124,11 @@ export default function HomePage() {
     }
   }, [selectedSemesterId]);
 
-  const selectedSemester = semesters.find((s) => s.id === selectedSemesterId);
+  const selectedSemester = Array.isArray(semesters) ? semesters.find((s) => s.id === selectedSemesterId) : undefined;
 
   // Filter modules by status if desired
-  const filteredModules = modules.filter((m) => {
+  const safeModules = Array.isArray(modules) ? modules : [];
+  const filteredModules = safeModules.filter((m) => {
     if (statusFilter === "ALL") return true;
     if (statusFilter === "IN_PROGRESS") return m.status === "IN_PROGRESS" || m.status === "PLANNED";
     if (statusFilter === "COMPLETED") return m.status === "COMPLETED";

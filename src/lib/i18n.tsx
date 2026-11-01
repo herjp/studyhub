@@ -705,15 +705,27 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Language>("de");
 
   useEffect(() => {
-    const stored = localStorage.getItem("studyhub_lang") as Language | null;
-    if (stored === "de" || stored === "en") {
-      setLangState(stored);
+    try {
+      if (typeof window !== "undefined") {
+        const stored = localStorage.getItem("studyhub_lang") as Language | null;
+        if (stored === "de" || stored === "en") {
+          setLangState(stored);
+        }
+      }
+    } catch {
+      // Ignore localStorage access restrictions in private browsing modes
     }
   }, []);
 
   const setLang = (newLang: Language) => {
     setLangState(newLang);
-    localStorage.setItem("studyhub_lang", newLang);
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("studyhub_lang", newLang);
+      }
+    } catch {
+      // Ignore
+    }
   };
 
   return (

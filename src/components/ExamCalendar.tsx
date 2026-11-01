@@ -80,6 +80,21 @@ export interface UnifiedCalendarItem {
   isDirectExam?: boolean;
 }
 
+export function safeDateKey(d: any): string {
+  if (!d) return "";
+  if (typeof d === "string") {
+    const match = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+    const parsed = new Date(d);
+    if (isNaN(parsed.getTime())) return "";
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+  }
+  if (d instanceof Date && !isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  return "";
+}
+
 export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) {
   const { lang, t } = useLanguage();
   const [exams, setExams] = useState<CalendarExam[]>([]);
@@ -123,20 +138,28 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedUni = localStorage.getItem("studyhub_preferred_university");
-      if (savedUni) setPreferredUniversity(savedUni);
-      const savedCustom = localStorage.getItem("studyhub_custom_university");
-      if (savedCustom) setCustomUniversity(savedCustom);
+      try {
+        const savedUni = localStorage.getItem("studyhub_preferred_university");
+        if (savedUni) setPreferredUniversity(savedUni);
+        const savedCustom = localStorage.getItem("studyhub_custom_university");
+        if (savedCustom) setCustomUniversity(savedCustom);
+      } catch (e) {
+        console.warn("localStorage restricted:", e);
+      }
     }
   }, []);
 
   const handleSelectUniversity = (uniId: string, customName?: string) => {
     setPreferredUniversity(uniId);
     if (typeof window !== "undefined") {
-      localStorage.setItem("studyhub_preferred_university", uniId);
-      if (customName !== undefined) {
-        setCustomUniversity(customName);
-        localStorage.setItem("studyhub_custom_university", customName);
+      try {
+        localStorage.setItem("studyhub_preferred_university", uniId);
+        if (customName !== undefined) {
+          setCustomUniversity(customName);
+          localStorage.setItem("studyhub_custom_university", customName);
+        }
+      } catch (e) {
+        console.warn("Could not save to localStorage:", e);
       }
     }
     setShowUniDropdown(false);
@@ -171,14 +194,14 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
         if (Array.isArray(data)) {
           setExams(data);
           setSubEvents([]);
-        } else {
-          setExams(data.exams || []);
-          setSubEvents(data.events || []);
+        } else if (data && typeof data === "object") {
+          setExams(Array.isArray(data.exams) ? data.exams : []);
+          setSubEvents(Array.isArray(data.events) ? data.events : []);
         }
       }
       if (resModules.ok) {
         const modData = await resModules.json();
-        setModules(modData);
+        setModules(Array.isArray(modData) ? modData : []);
       }
     } catch (err) {
       console.error("Failed to load calendar data:", err);
@@ -193,7 +216,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
 
   // Live Auto-Matching as user types search query
   useEffect(() => {
-    if (moduleSearchQuery.trim().length > 1) {
+    if (moduleSearchQuery.trim().length > 1 && Array.isArray(modules)) {
       const q = moduleSearchQuery.toLowerCase();
       const match = modules.find(
         (m) =>
@@ -213,7 +236,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   }, [moduleSearchQuery, modules]);
 
   const handleOpenAddForDate = (date: Date) => {
-    const formatted = date.toISOString().split("T")[0];
+    const formatted = safeDateKey(date) || safeDateKey(new Date());
     setSelectedDateStr(formatted);
     setSelectedModuleId(modules[0]?.id || "");
     setModuleSearchQuery("");
@@ -352,17 +375,19 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   // 2. Add calendar sub-events (lectures, tests, exercises)
   subEvents.forEach((evt) => {
     // Deduplicate if an exam event already exists on the same day for this module
-    const evtDateStr = new Date(evt.date).toISOString().split("T")[0];
+    const evtDateStr = safeDateKey(evt.date);
     const isDuplicateExam =
       evt.eventType === "EXAM" &&
+      evtDateStr !== "" &&
       exams.some(
         (e) =>
           e.id === evt.moduleId &&
-          new Date(e.examDate).toISOString().split("T")[0] === evtDateStr
+          safeDateKey(e.examDate) === evtDateStr
       );
 
     if (!isDuplicateExam) {
-      const diffMs = new Date(evt.date).getTime() - new Date().getTime();
+      const evtTime = evt.date ? new Date(evt.date).getTime() : NaN;
+      const diffMs = !isNaN(evtTime) ? evtTime - Date.now() : 0;
       const daysUntil = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 
       unifiedItems.push({
@@ -397,8 +422,12 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   const lectureCount = unifiedItems.filter((i) => i.eventType === "LECTURE").length;
   const exerciseCount = unifiedItems.filter((i) => i.eventType === "EXERCISE").length;
 
-  // Sort by date ascending
-  filteredItems.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  // Sort by date ascending safely
+  filteredItems.sort((a, b) => {
+    const timeA = a.date ? new Date(a.date).getTime() : 0;
+    const timeB = b.date ? new Date(b.date).getTime() : 0;
+    return (isNaN(timeA) ? 0 : timeA) - (isNaN(timeB) ? 0 : timeB);
+  });
 
   // Month calculations
   const year = currentDate.getFullYear();
@@ -428,9 +457,10 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   }
 
   const getItemsForDay = (day: Date) => {
-    const dayStr = day.toISOString().split("T")[0];
+    const dayStr = safeDateKey(day);
+    if (!dayStr) return [];
     return filteredItems.filter((item) => {
-      const itemDateStr = new Date(item.date).toISOString().split("T")[0];
+      const itemDateStr = safeDateKey(item.date);
       return itemDateStr === dayStr;
     });
   };
@@ -708,12 +738,12 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
 
               const dayItems = getItemsForDay(day);
               const isToday =
-                new Date().toISOString().split("T")[0] === day.toISOString().split("T")[0];
+                safeDateKey(new Date()) === safeDateKey(day);
               const hasExamsOnDay = dayItems.some((i) => i.eventType === "EXAM" || i.eventType === "TEST");
 
               return (
                 <div
-                  key={day.toISOString()}
+                  key={safeDateKey(day) || `day-${idx}`}
                   onClick={() => {
                     if (dayItems.length > 0) {
                       setSelectedDayForDetail(day);
@@ -894,12 +924,14 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                       )}
 
                       <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        {new Date(item.date).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
-                          weekday: "short",
-                          day: "2-digit",
-                          month: "long",
-                          year: "numeric",
-                        })}
+                        {item.date && !isNaN(new Date(item.date).getTime())
+                          ? new Date(item.date).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
+                              weekday: "short",
+                              day: "2-digit",
+                              month: "long",
+                              year: "numeric",
+                            })
+                          : item.date || "–"}
                       </span>
 
                       {item.time && (
