@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { QuestionType } from "@prisma/client";
-import { generateQuestionsWithAI } from "@/lib/ai-service";
+import { generateQuestionsWithAI, DEFAULT_GEMINI_KEY } from "@/lib/ai-service";
 import { getCurrentUser } from "@/lib/auth";
 import { isValidPdfText } from "@/lib/pdf-extractor";
 
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     }
 
     // 3. Check for API key
-    const effectiveKey = apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+    const effectiveKey = apiKey || DEFAULT_GEMINI_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
     if (!effectiveKey) {
       return NextResponse.json(
         {

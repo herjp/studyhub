@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { DocumentCategory } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
-import { extractDocumentWithAI, extractDocumentWithGemini, suggestSmartDocumentTitle } from "@/lib/ai-service";
+import { extractDocumentWithAI, extractDocumentWithGemini, suggestSmartDocumentTitle, DEFAULT_GEMINI_KEY } from "@/lib/ai-service";
 import { extractPdfTextFromBuffer, sanitizePostgresString, suggestDocumentTitleFromText } from "@/lib/pdf-extractor";
 
 export async function POST(req: Request) {
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
       }
 
       // B) Multimodal OCR with strict timeout (Gemini, OpenAI, or Anthropic)
-      const activeKey = apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+      const activeKey = apiKey || DEFAULT_GEMINI_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
       if (!extractedText && activeKey && (isImage || isPdf)) {
         try {
           const aiResult = await extractDocumentWithAI({
@@ -130,7 +130,7 @@ export async function POST(req: Request) {
       if (autoTitle && autoTitle.trim().length > 3 && !/^media[_\s-]?\d+/i.test(autoTitle)) {
         effectiveDocTitle = autoTitle.trim();
       } else {
-        const activeKey = apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+        const activeKey = apiKey || DEFAULT_GEMINI_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
         if (activeKey) {
           try {
             const smart = await suggestSmartDocumentTitle({
