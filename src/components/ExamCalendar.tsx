@@ -23,12 +23,14 @@ import {
   BookOpen,
   RotateCcw,
   Trash2,
+  ChevronDown,
+  GraduationCap,
 } from "lucide-react";
 import { FahrschulBar } from "./FahrschulBar";
 import { Portal } from "./Portal";
 import { IcsImportModal } from "./IcsImportModal";
 import { useLanguage } from "@/lib/i18n";
-import { getCampusMapInfo } from "@/lib/campus-maps";
+import { getCampusMapInfo, SUPPORTED_UNIVERSITIES, UniversityProvider } from "@/lib/campus-maps";
 
 export interface CalendarExam {
   id: string;
@@ -109,6 +111,54 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   const [deleteEmptyOnReset, setDeleteEmptyOnReset] = useState(true);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
+
+  // University / Campus Provider State
+  const [preferredUniversity, setPreferredUniversity] = useState<string>("tu_wien");
+  const [customUniversity, setCustomUniversity] = useState<string>("");
+  const [showUniDropdown, setShowUniDropdown] = useState(false);
+
+  // Merge Duplicate Courses State
+  const [isMergingCourses, setIsMergingCourses] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedUni = localStorage.getItem("studyhub_preferred_university");
+      if (savedUni) setPreferredUniversity(savedUni);
+      const savedCustom = localStorage.getItem("studyhub_custom_university");
+      if (savedCustom) setCustomUniversity(savedCustom);
+    }
+  }, []);
+
+  const handleSelectUniversity = (uniId: string, customName?: string) => {
+    setPreferredUniversity(uniId);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("studyhub_preferred_university", uniId);
+      if (customName !== undefined) {
+        setCustomUniversity(customName);
+        localStorage.setItem("studyhub_custom_university", customName);
+      }
+    }
+    setShowUniDropdown(false);
+  };
+
+  const handleMergeCourses = async () => {
+    setIsMergingCourses(true);
+    setMergeMessage(null);
+    try {
+      const res = await fetch("/api/calendar/merge-courses", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Fehler beim Zusammenführen");
+      setMergeMessage(data.message);
+      await fetchCalendarData();
+      if (onExamUpdated) onExamUpdated();
+      setTimeout(() => setMergeMessage(null), 4000);
+    } catch (err: any) {
+      console.error("Failed to merge courses:", err);
+    } finally {
+      setIsMergingCourses(false);
+    }
+  };
 
   const fetchCalendarData = async () => {
     try {
@@ -428,6 +478,74 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
             </button>
           </div>
 
+          {/* University Campus Selector */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowUniDropdown((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs transition-all"
+              title={lang === "de" ? "Campus für Raumsuche & Hörsäle auswählen" : "Select university for room navigation"}
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+              <span>{preferredUniversity === "other" && customUniversity ? customUniversity : (SUPPORTED_UNIVERSITIES.find((u) => u.id === preferredUniversity)?.shortName || "TU Wien")}</span>
+              <ChevronDown className="w-3 h-3 opacity-60" />
+            </button>
+
+            {showUniDropdown && (
+              <div className="absolute right-0 mt-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-50 p-2 space-y-1 animate-in fade-in zoom-in-95">
+                <div className="px-2.5 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+                  {lang === "de" ? "Hochschule / Campus für Raumsuche" : "University for Room Navigation"}
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-0.5 pt-1">
+                  {SUPPORTED_UNIVERSITIES.map((uni) => (
+                    <button
+                      key={uni.id}
+                      type="button"
+                      onClick={() => {
+                        if (uni.id !== "other") {
+                          handleSelectUniversity(uni.id);
+                        } else {
+                          const name = prompt(
+                            lang === "de"
+                              ? "Name deiner Universität / Hochschule (z. B. 'Uni Köln', 'KIT', 'Uni Innsbruck'):"
+                              : "Name of your university (e.g. 'Uni Cologne', 'KIT'):",
+                            customUniversity || ""
+                          );
+                          if (name !== null) {
+                            handleSelectUniversity("other", name.trim());
+                          }
+                        }
+                      }}
+                      className={`w-full text-left px-2.5 py-2 rounded-xl text-xs flex items-center justify-between transition-colors ${
+                        preferredUniversity === uni.id
+                          ? "bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold"
+                          : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      <div>
+                        <div className="font-semibold">{uni.name}</div>
+                        <div className="text-[10px] text-slate-400">{uni.mapSystem}</div>
+                      </div>
+                      {preferredUniversity === uni.id && <Check className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Merge Duplicate Courses Button */}
+          <button
+            type="button"
+            onClick={handleMergeCourses}
+            disabled={isMergingCourses}
+            title={lang === "de" ? "Doppelte Termine gleicher Modulnummern (330...) automatisch bündeln" : "Consolidate duplicate course numbers"}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-all shadow-2xs disabled:opacity-50"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+            <span>{isMergingCourses ? (lang === "de" ? "Führe zusammen..." : "Merging...") : (lang === "de" ? "Module zusammenführen" : "Merge Courses")}</span>
+          </button>
+
           {/* Import .ics Calendar */}
           <button
             onClick={() => setIsIcsModalOpen(true)}
@@ -457,22 +575,12 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
         </div>
       </div>
 
-      {/* FARB-LEGENDE */}
-      <div className="flex items-center gap-2 text-xs flex-wrap p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60">
-        <span className="font-bold text-slate-500 mr-1">{lang === "de" ? "Farben:" : "Colors:"}</span>
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-bold border border-rose-300 dark:border-rose-800 text-[11px]">
-          🔥 {lang === "de" ? "Klausur (Rot)" : "Exam (Red)"}
-        </span>
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800 text-[11px]">
-          ⚡ {lang === "de" ? "Test (Orange)" : "Test (Orange)"}
-        </span>
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 font-medium border border-sky-300 dark:border-sky-800 text-[11px]">
-          📚 {lang === "de" ? "Vorlesung (Blau)" : "Lecture (Blue)"}
-        </span>
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-medium border border-emerald-300 dark:border-emerald-800 text-[11px]">
-          ✏️ {lang === "de" ? "Übung (Grün)" : "Exercise (Green)"}
-        </span>
-      </div>
+      {mergeMessage && (
+        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+          <span>{mergeMessage}</span>
+        </div>
+      )}
 
       {/* FILTER TABS */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
@@ -672,6 +780,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                         icon = "✏️";
                       }
 
+                      const itemMap = item.location ? getCampusMapInfo(item.location, preferredUniversity, customUniversity) : null;
                       return (
                         <div
                           key={item.id}
@@ -679,7 +788,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                             e.stopPropagation();
                             setSelectedDayForDetail(day);
                           }}
-                          className={`block px-1.5 py-1 rounded-lg text-[10px] border transition-colors shadow-2xs hover:opacity-90 ${badgeStyles}`}
+                          className={`block px-1.5 py-1 rounded-lg text-[10px] border transition-colors shadow-2xs hover:opacity-90 cursor-pointer ${badgeStyles}`}
                           title={`${icon} ${item.title}${item.time ? ` (${item.time})` : ""}${item.location ? ` @ ${item.location}` : ""}`}
                         >
                           <div className="flex items-center justify-between gap-1 leading-tight">
@@ -687,10 +796,24 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                               <span>{icon}</span>
                               {item.time && <span>{item.time}</span>}
                             </span>
-                            {item.location && (
-                              <span className="text-[9px] opacity-75 truncate max-w-[55px]">
-                                📍 {item.location.split("-")[0].trim()}
-                              </span>
+                            {item.location && itemMap && (
+                              itemMap.url ? (
+                                <a
+                                  href={itemMap.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title={`📍 Raum sofort auf ${itemMap.providerName} suchen: ${itemMap.cleanLocation}`}
+                                  className="text-[9px] opacity-90 hover:opacity-100 font-bold truncate max-w-[65px] hover:underline flex items-center gap-0.5 bg-black/5 dark:bg-white/10 px-1 py-0.2 rounded transition-colors"
+                                >
+                                  <span>📍</span>
+                                  <span className="truncate">{itemMap.cleanLocation}</span>
+                                </a>
+                              ) : (
+                                <span className="text-[9px] opacity-75 truncate max-w-[55px]">
+                                  📍 {itemMap.cleanLocation}
+                                </span>
+                              )
                             )}
                           </div>
                           <div className="truncate font-medium mt-0.5">
@@ -733,7 +856,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                 }
               }
 
-              const mapInfo = item.location ? getCampusMapInfo(item.location) : null;
+              const mapInfo = item.location ? getCampusMapInfo(item.location, preferredUniversity, customUniversity) : null;
 
               return (
                 <div
@@ -1155,7 +1278,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
               {/* List of events on this day */}
               <div className="space-y-3 overflow-y-auto flex-1 pr-1">
                 {getItemsForDay(selectedDayForDetail).map((item) => {
-                  const mapInfo = item.location ? getCampusMapInfo(item.location) : null;
+                  const mapInfo = item.location ? getCampusMapInfo(item.location, preferredUniversity, customUniversity) : null;
                   let typeBadge = (
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 border border-sky-300 dark:border-sky-800 flex items-center gap-1">
                       📚 {lang === "de" ? "Vorlesung" : "Lecture"}
@@ -1219,20 +1342,32 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                         )}
 
                         {item.location && mapInfo && (
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <MapPin className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
-                            <span className="font-semibold text-slate-700 dark:text-slate-300">
-                              {item.location}
-                            </span>
+                          <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                            <div className="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
+                              <MapPin className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
+                              <span className="font-semibold">{item.location}</span>
+                            </div>
                             {mapInfo.url && (
                               <a
                                 href={mapInfo.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-100 hover:bg-sky-200 dark:bg-sky-950 dark:hover:bg-sky-900 text-sky-800 dark:text-sky-300 font-bold text-[11px] transition-colors shadow-2xs"
-                                title={`In ${mapInfo.providerName} öffnen`}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-all shadow-sm hover:shadow"
+                                title={`In ${mapInfo.providerName} nach ${mapInfo.cleanLocation} suchen`}
                               >
-                                <span>🗺️ {mapInfo.badgeLabel}</span>
+                                <span>🔍 {mapInfo.isOnline ? mapInfo.badgeLabel : `${lang === "de" ? "Raum sofort suchen" : "Search room"}: ${mapInfo.cleanLocation}`}</span>
+                                <ExternalLink className="w-3 h-3 ml-0.5" />
+                              </a>
+                            )}
+                            {mapInfo.secondaryUrl && (
+                              <a
+                                href={mapInfo.secondaryUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline"
+                                title="Campus auf Google Maps anzeigen"
+                              >
+                                <span>📍 Google Maps</span>
                                 <ExternalLink className="w-2.5 h-2.5" />
                               </a>
                             )}

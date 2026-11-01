@@ -201,6 +201,19 @@ function ModuleDetailContent() {
   const [moduleData, setModuleData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // University preference for campus room links
+  const [preferredUniversity, setPreferredUniversity] = useState("tu_wien");
+  const [customUniversity, setCustomUniversity] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedUni = localStorage.getItem("studyhub_preferred_university");
+      if (savedUni) setPreferredUniversity(savedUni);
+      const savedCustom = localStorage.getItem("studyhub_custom_university");
+      if (savedCustom) setCustomUniversity(savedCustom);
+    }
+  }, []);
+
   // Document upload state
   const [docTitle, setDocTitle] = useState("");
   const [suggestedDocTitle, setSuggestedDocTitle] = useState<string>("");
@@ -1358,7 +1371,7 @@ function ModuleDetailContent() {
                     </span>
                   )}
                   {moduleData.examLocation && (() => {
-                    const mapInfo = getCampusMapInfo(moduleData.examLocation);
+                    const mapInfo = getCampusMapInfo(moduleData.examLocation, preferredUniversity, customUniversity);
                     return (
                       <span className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-slate-400">Raum/Ort:</span>
@@ -1397,7 +1410,7 @@ function ModuleDetailContent() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
                       {moduleData.events.map((evt: any) => {
-                        const evtMap = evt.location ? getCampusMapInfo(evt.location) : null;
+                        const evtMap = evt.location ? getCampusMapInfo(evt.location, preferredUniversity, customUniversity) : null;
                         let icon = "📚";
                         let badgeColor =
                           "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 dark:border-sky-800";

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   UploadCloud,
   Calendar as CalendarIcon,
@@ -58,6 +58,18 @@ export function IcsImportModal({
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
+
+  const [preferredUniversity, setPreferredUniversity] = useState("tu_wien");
+  const [customUniversity, setCustomUniversity] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedUni = localStorage.getItem("studyhub_preferred_university");
+      if (savedUni) setPreferredUniversity(savedUni);
+      const savedCustom = localStorage.getItem("studyhub_custom_university");
+      if (savedCustom) setCustomUniversity(savedCustom);
+    }
+  }, []);
 
   if (!isOpen) return null;
 
@@ -510,7 +522,7 @@ export function IcsImportModal({
 
                             <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                               {group.allEvents.map((ev) => {
-                                const mapInfo = getCampusMapInfo(ev.location);
+                                const mapInfo = getCampusMapInfo(ev.location, preferredUniversity, customUniversity);
                                 let typeBadge = (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/60 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium">
                                     Termin
