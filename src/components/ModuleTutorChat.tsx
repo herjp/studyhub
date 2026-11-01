@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useLanguage } from "@/lib/i18n";
+import { MathMarkdownRenderer } from "./MathMarkdownRenderer";
 import {
   Sparkles,
   Send,
@@ -40,87 +41,6 @@ interface ModuleTutorChatProps {
   documentsCount?: number;
   isOpenAsDrawer?: boolean;
   onCloseDrawer?: () => void;
-}
-
-/**
- * Renders Mermaid diagrams as responsive, interactive SVG graphics.
- */
-function MermaidRenderer({ chart }: { chart: string }) {
-  const [svg, setSvg] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const renderId = useRef(`m_${Math.random().toString(36).substring(2, 9)}`);
-
-  useEffect(() => {
-    let isMounted = true;
-    const renderChart = async () => {
-      try {
-        const mermaidModule = await import("mermaid");
-        const mermaid = mermaidModule.default;
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: "neutral",
-          securityLevel: "loose",
-          fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
-        });
-        const cleanCode = chart.trim();
-        const id = `mermaid_${renderId.current}_${Date.now()}`;
-        const { svg } = await mermaid.render(id, cleanCode);
-        if (isMounted) {
-          setSvg(svg);
-          setError(null);
-        }
-      } catch (err: any) {
-        console.warn("Mermaid render error:", err);
-        if (isMounted) {
-          setError(err.message || "Fehler beim Rendern des Diagramms");
-        }
-      }
-    };
-    renderChart();
-    return () => {
-      isMounted = false;
-    };
-  }, [chart]);
-
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(chart);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  if (error) {
-    return (
-      <div className="my-3 p-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-xs overflow-x-auto text-slate-700 dark:text-slate-300">
-        <div className="text-[10px] text-amber-500 font-bold mb-1">Diagramm-Code (Mermaid):</div>
-        <pre>{chart}</pre>
-      </div>
-    );
-  }
-
-  return (
-    <div className="my-3 rounded-2xl border border-indigo-200/80 dark:border-indigo-900/60 bg-gradient-to-b from-slate-50/80 to-white dark:from-slate-800/80 dark:to-slate-900/90 p-3 sm:p-4 shadow-xs overflow-hidden">
-      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/60 dark:border-slate-700/60 text-xs">
-        <div className="flex items-center gap-1.5 font-bold text-indigo-700 dark:text-indigo-300">
-          <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-          <span>Visuelles Modell / Struktur-Diagramm</span>
-        </div>
-        <button
-          onClick={handleCopyCode}
-          className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
-        >
-          {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-          <span>{copied ? "Kopiert" : "Mermaid Code"}</span>
-        </button>
-      </div>
-      <div
-        ref={containerRef}
-        className="w-full overflow-x-auto flex justify-center py-2 min-h-[100px] items-center [&_svg]:max-w-full [&_svg]:h-auto text-slate-800 dark:text-slate-200"
-        dangerouslySetInnerHTML={{ __html: svg }}
-      />
-    </div>
-  );
 }
 
 export function ModuleTutorChat({
@@ -348,149 +268,6 @@ export function ModuleTutorChat({
       setMessages([]);
       setInput("");
     }
-  };
-
-  const renderInlineMarkdown = (content: string) => {
-    const parts = content.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-    return parts.map((part, idx) => {
-      if (part.startsWith("**") && part.endsWith("**")) {
-        return (
-          <strong key={idx} className="font-bold text-slate-900 dark:text-white">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-      if (part.startsWith("`") && part.endsWith("`")) {
-        return (
-          <code
-            key={idx}
-            className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700/80 font-mono text-[11px] text-indigo-600 dark:text-indigo-300 border border-slate-200 dark:border-slate-600"
-          >
-            {part.slice(1, -1)}
-          </code>
-        );
-      }
-      return part;
-    });
-  };
-
-  const renderMarkdownSection = (sectionText: string, keyPrefix: string) => {
-    const paragraphs = sectionText.split(/\n\s*\n/);
-    return (
-      <div key={keyPrefix} className="space-y-2.5">
-        {paragraphs.map((para, pIdx) => {
-          const trimmed = para.trim();
-          if (!trimmed) return null;
-
-          // H1 Headings
-          if (trimmed.startsWith("# ")) {
-            return (
-              <h1
-                key={pIdx}
-                className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white mt-4 mb-2 pb-1 border-b border-slate-200 dark:border-slate-700"
-              >
-                {renderInlineMarkdown(trimmed.replace(/^#\s+/, ""))}
-              </h1>
-            );
-          }
-
-          // H2 Headings
-          if (trimmed.startsWith("## ")) {
-            return (
-              <h2
-                key={pIdx}
-                className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-3.5 mb-1.5"
-              >
-                {renderInlineMarkdown(trimmed.replace(/^##\s+/, ""))}
-              </h2>
-            );
-          }
-
-          // H3 Headings
-          if (trimmed.startsWith("### ")) {
-            return (
-              <h3
-                key={pIdx}
-                className="text-xs sm:text-sm font-bold text-indigo-700 dark:text-indigo-400 mt-3 mb-1"
-              >
-                {renderInlineMarkdown(trimmed.replace(/^###\s+/, ""))}
-              </h3>
-            );
-          }
-
-          // Horizontal rule
-          if (trimmed === "---" || trimmed === "***") {
-            return <hr key={pIdx} className="my-3 border-slate-200 dark:border-slate-700" />;
-          }
-
-          // Blockquote / Tip
-          if (trimmed.startsWith("> ")) {
-            return (
-              <div
-                key={pIdx}
-                className="p-3 my-2 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border-l-4 border-indigo-500 text-xs text-slate-700 dark:text-slate-300 italic"
-              >
-                {renderInlineMarkdown(trimmed.replace(/^>\s*/, ""))}
-              </div>
-            );
-          }
-
-          // Regular paragraph or bullet list
-          const lines = trimmed.split("\n");
-          return (
-            <div key={pIdx} className="text-xs sm:text-sm text-slate-800 dark:text-slate-200">
-              {lines.map((line, lIdx) => {
-                const isBullet =
-                  line.trim().startsWith("- ") ||
-                  line.trim().startsWith("• ") ||
-                  line.trim().startsWith("* ");
-                const cleanLine = isBullet ? line.trim().replace(/^[-•*]\s*/, "") : line;
-
-                return (
-                  <span
-                    key={lIdx}
-                    className={
-                      isBullet
-                        ? "block pl-4 relative my-1 text-slate-700 dark:text-slate-200"
-                        : "block my-0.5 leading-relaxed"
-                    }
-                  >
-                    {isBullet && (
-                      <span className="absolute left-0 text-indigo-500 font-bold">•</span>
-                    )}
-                    {renderInlineMarkdown(cleanLine)}
-                  </span>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const renderFormattedText = (text: string) => {
-    const mermaidRegex = /```mermaid\s*([\s\S]*?)```/g;
-    const segments: React.ReactNode[] = [];
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = mermaidRegex.exec(text)) !== null) {
-      const textBefore = text.slice(lastIndex, match.index);
-      if (textBefore.trim()) {
-        segments.push(renderMarkdownSection(textBefore, `pre_${lastIndex}`));
-      }
-      const chartCode = match[1];
-      segments.push(<MermaidRenderer key={`chart_${match.index}`} chart={chartCode} />);
-      lastIndex = match.index + match[0].length;
-    }
-
-    const remainingText = text.slice(lastIndex);
-    if (remainingText.trim()) {
-      segments.push(renderMarkdownSection(remainingText, `post_${lastIndex}`));
-    }
-
-    return <div className="space-y-3 leading-relaxed">{segments}</div>;
   };
 
   return (
@@ -729,8 +506,8 @@ export function ModuleTutorChat({
                   </button>
                 </div>
 
-                {/* Formatted Text Content with Mermaid Diagrams */}
-                {renderFormattedText(msg.content)}
+                {/* Formatted Text Content with KaTeX Math & Mermaid Diagrams */}
+                <MathMarkdownRenderer content={msg.content} />
 
                 {/* Exam Tip Callout */}
                 {msg.examTip && (

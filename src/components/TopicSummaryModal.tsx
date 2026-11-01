@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Portal } from "./Portal";
 import { useLanguage } from "@/lib/i18n";
+import { MathMarkdownRenderer } from "./MathMarkdownRenderer";
 
 interface TopicSummaryModalProps {
   moduleId: string;
@@ -141,9 +142,9 @@ export function TopicSummaryModal({
                 </div>
               )}
 
-              {/* Main Summary */}
-              <div className="prose prose-sm dark:prose-invert max-w-none bg-slate-50/50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 leading-relaxed whitespace-pre-line text-xs sm:text-sm">
-                {summaryData.summary}
+              {/* Main Summary with KaTeX formulas & Mermaid diagrams */}
+              <div className="bg-slate-50/50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 leading-relaxed text-xs sm:text-sm">
+                <MathMarkdownRenderer content={summaryData.summary} />
               </div>
 
               {/* Exam Tips */}

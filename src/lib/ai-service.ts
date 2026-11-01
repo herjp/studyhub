@@ -1327,17 +1327,23 @@ DIDAKTISCHE LEITLINIEN:
      \`\`\`
    - Das System rendert dein Mermaid-Diagramm automatisch direkt als visuelle Grafik im Chat!
 
-3. QUELLENTREUE:
+3. MATHEMATISCHE & WISSENSCHAFTLICHE FORMELN (LATEX / KATEX):
+   - Wenn Gleichungen, Formeln oder Kennzahlen der Vorlesung vorkommen (z. B. Kurt Lewins Verhaltensformel $V = f(P, U)$ bzw. $B = f(P, E)$, Ambidexterie-Messung, quantitative Modelle):
+     * Formatiere Formeln IMMER in standardkonformem LaTeX: Inline als \`$V = f(P, U)$\` oder als zentrierte Hauptformel als \`$$V = f(P, U)$$\`.
+     * Schicke JEDER Formel eine exakte Variablen-Aufschlüsselung hinterher (z. B. bei $V = f(P, U)$: $V$ = Verhalten, $P$ = Person/Persönlichkeit/Motive, $U$ = Umfeld/Umwelt/Führung/Situation).
+     * Erkläre die didaktische und klausurrelevante Kernaussage der Formel präzise.
+
+4. QUELLENTREUE:
    - Beantworte die Frage primär auf Basis des bereitgestellten Vorlesungsmaterials und verweise auf konkrete Fälle/Folien.
    - Gib im Feld "sources" die Dokumentnamen an, aus denen du dein Wissen bezogen hast.
 
-4. KLAUSUR-RELEVANZ & PRÜFER-TIPP:
+5. KLAUSUR-RELEVANZ & PRÜFER-TIPP:
    - Gib im Feld "examTip" einen wertvollen Tipp: Worauf achten Dozenten bei diesem Thema in Prüfungen? Welche typische Klausurfalle oder Prüfungsfrage gibt es dazu?
 
-5. NÄCHSTE SCHRITTE / ANSCHLUSSFRAGEN:
+6. NÄCHSTE SCHRITTE / ANSCHLUSSFRAGEN:
    - Schlage im Feld "followUpSuggestions" 2 bis 3 logische, vertiefende Anschlussfragen vor, die der Studierende per Klick als nächstes fragen könnte.
 
-6. SPRACHE:
+7. SPRACHE:
    - Wenn der Studierende auf ENGLISCH fragt (oder lang="en"), antworte vollständig auf ENGLISCH.
    - Wenn auf DEUTSCH, antworte auf DEUTSCH.
    - Fachbegriffe in beiden Sprachen (oder Denglisch) werden nahtlos verstanden.
