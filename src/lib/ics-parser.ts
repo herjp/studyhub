@@ -43,12 +43,11 @@ export interface CourseGroup {
 export function cleanModuleName(raw: string): string {
   let name = raw.trim();
 
-  // Strip prefix like "Klausur zu", "Prüfung:", etc.
-  name = name.replace(/^(Klausur|Prüfung|Exam|Test)(\s+(zu|für|in))?:\s*/i, "");
-  name = name.replace(/^(Klausur|Prüfung|Exam|Test)\s+(zu|für|in)\s+/i, "");
-
   // Strip LVA number prefix like "330.285" or "064.051"
   name = name.replace(/^\d{3}\.\d{3}\s*/, "");
+
+  // Strip prefix like "Klausur zu", "Prüfung:", "Prüfung ", "Test 1 ", etc.
+  name = name.replace(/^(Klausur|Prüfung|Exam|Test(\s+\d+)?|Zwischentest)(\s+(zu|für|in))?[:\s]+/i, "");
 
   // Strip LVA type prefix like VO, UE, VU, SE, PR, LU, EX, VL
   name = name.replace(/^(VO|UE|VU|SE|PR|LU|EX|VL|PS|KO)\s+/i, "");
@@ -77,8 +76,8 @@ export function extractCourseCode(raw: string): string | undefined {
 /**
  * Classifies appointment type: Exam, Test, Lecture, Exercise, or Holiday
  */
-export function classifyEventType(summary: string, description: string = ""): IcsEventType {
-  const text = (summary + " " + description).toLowerCase();
+export function classifyEventType(summary: string, description: string = "", location: string = ""): IcsEventType {
+  const text = (summary + " " + description + " " + location).toLowerCase();
 
   // 1. Non-academic holidays / days off
   if (
@@ -103,16 +102,17 @@ export function classifyEventType(summary: string, description: string = ""): Ic
   }
 
   // 4. Exercises / Labs / Practicals
-  if (/(\bue\b|übung|praktikum|labor|laborübung|tutorium|exercise|lab\b)/i.test(summary)) {
+  if (/(\bue\b|übung|praktikum|labor|laborübung|tutorium|exercise|lab\b)/i.test(summary) || /übung/i.test(description)) {
     return "EXERCISE";
   }
 
   // 5. Regular Lectures and Seminars
-  if (/(\bvo\b|vorlesung|\bvu\b|lecture|\bvl\b|\bse\b|seminar)/i.test(summary)) {
+  if (/(\bvo\b|vorlesung|\bvu\b|lecture|\bvl\b|\bse\b|seminar)/i.test(summary) || /vorlesung/i.test(description)) {
     return "LECTURE";
   }
 
-  return "OTHER";
+  // Default for university appointments with location, course or time: LECTURE (Vorlesung)
+  return "LECTURE";
 }
 
 /**
@@ -186,9 +186,19 @@ function processRawEvent(
 
   const dtstart = raw["DTSTART"] || "";
   const dtend = raw["DTEND"] || "";
+  const duration = raw["DURATION"] || "";
 
   const startDate = parseIcsDate(dtstart);
-  const endDate = parseIcsDate(dtend);
+  let endDate = parseIcsDate(dtend);
+
+  if (!endDate && duration && startDate) {
+    const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?/);
+    if (match) {
+      const h = parseInt(match[1] || "0", 10);
+      const m = parseInt(match[2] || "0", 10);
+      endDate = new Date(startDate.getTime() + (h * 60 + m) * 60 * 1000);
+    }
+  }
 
   if (!startDate) return null;
 
@@ -211,7 +221,7 @@ function processRawEvent(
 
   const cleanName = cleanModuleName(summary);
   const courseCode = extractCourseCode(summary);
-  const eventType = classifyEventType(summary, description);
+  const eventType = classifyEventType(summary, description, location);
   const isExam = eventType === "EXAM" || eventType === "TEST";
 
   // Match with existing modules

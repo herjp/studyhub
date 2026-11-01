@@ -193,15 +193,27 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "Nicht autorisiert" }, { status: 401 });
     }
 
-    let deleteEmptyModules = true;
+    let body: any = {};
     try {
-      const body = await req.json();
-      if (typeof body.deleteEmptyModules === "boolean") {
-        deleteEmptyModules = body.deleteEmptyModules;
-      }
+      body = await req.json();
     } catch {
       // Body may be empty on simple DELETE requests
     }
+
+    // Support single event deletion
+    if (body.eventId) {
+      const evt = await prisma.calendarEvent.findUnique({
+        where: { id: body.eventId },
+        include: { module: { include: { semester: true } } },
+      });
+      if (evt && evt.module.semester.userId === user.id) {
+        await prisma.calendarEvent.delete({ where: { id: body.eventId } });
+        return NextResponse.json({ success: true, message: "Termin erfolgreich gelöscht." });
+      }
+      return NextResponse.json({ error: "Termin nicht gefunden oder nicht berechtigt." }, { status: 404 });
+    }
+
+    let deleteEmptyModules = typeof body.deleteEmptyModules === "boolean" ? body.deleteEmptyModules : true;
 
     // 1. Find all modules belonging to this user
     const userModules = await prisma.module.findMany({

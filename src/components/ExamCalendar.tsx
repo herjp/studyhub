@@ -85,7 +85,8 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   const [modules, setModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
-  const [eventFilter, setEventFilter] = useState<"all" | "exams_tests" | "lectures">("all");
+  const [eventFilter, setEventFilter] = useState<"all" | "exams" | "tests" | "lectures" | "exercises">("all");
+  const [selectedDayForDetail, setSelectedDayForDetail] = useState<Date | null>(null);
 
   // Current calendar month view
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -108,10 +109,6 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   const [deleteEmptyOnReset, setDeleteEmptyOnReset] = useState(true);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
-
-  // Merge Courses State
-  const [isMergingCourses, setIsMergingCourses] = useState(false);
-  const [mergeMessage, setMergeMessage] = useState<string | null>(null);
 
   const fetchCalendarData = async () => {
     try {
@@ -230,6 +227,9 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
             ? "Kalender erfolgreich zurückgesetzt."
             : "Calendar successfully reset.")
       );
+      // Immediately clear local state for instant feedback
+      setExams([]);
+      setSubEvents([]);
       fetchCalendarData();
       if (onExamUpdated) onExamUpdated();
 
@@ -244,21 +244,27 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
     }
   };
 
-  const handleMergeCourses = async () => {
-    setIsMergingCourses(true);
-    setMergeMessage(null);
+  const handleDeleteSingleEvent = async (eventId: string) => {
     try {
-      const res = await fetch("/api/calendar/merge-courses", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Fehler beim Zusammenführen");
-      setMergeMessage(data.message);
-      fetchCalendarData();
-      if (onExamUpdated) onExamUpdated();
-      setTimeout(() => setMergeMessage(null), 3500);
-    } catch (err: any) {
-      console.error("Failed to merge courses:", err);
-    } finally {
-      setIsMergingCourses(false);
+      const realId = eventId.replace(/^event-/, "").replace(/^exam-/, "");
+      const res = await fetch("/api/calendar", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: realId }),
+      });
+      if (res.ok) {
+        fetchCalendarData();
+        if (onExamUpdated) onExamUpdated();
+        if (selectedDayForDetail) {
+          // Keep day detail modal open and refreshed
+          const remaining = getItemsForDay(selectedDayForDetail).filter((i) => i.id !== eventId);
+          if (remaining.length === 0) {
+            setSelectedDayForDetail(null);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to delete event:", err);
     }
   };
 
@@ -329,14 +335,17 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
 
   // Filter unified items
   const filteredItems = unifiedItems.filter((item) => {
-    if (eventFilter === "exams_tests") {
-      return item.eventType === "EXAM" || item.eventType === "TEST";
-    }
-    if (eventFilter === "lectures") {
-      return item.eventType === "LECTURE" || item.eventType === "EXERCISE";
-    }
+    if (eventFilter === "exams") return item.eventType === "EXAM";
+    if (eventFilter === "tests") return item.eventType === "TEST";
+    if (eventFilter === "lectures") return item.eventType === "LECTURE";
+    if (eventFilter === "exercises") return item.eventType === "EXERCISE";
     return true;
   });
+
+  const examCount = unifiedItems.filter((i) => i.eventType === "EXAM").length;
+  const testCount = unifiedItems.filter((i) => i.eventType === "TEST").length;
+  const lectureCount = unifiedItems.filter((i) => i.eventType === "LECTURE").length;
+  const exerciseCount = unifiedItems.filter((i) => i.eventType === "EXERCISE").length;
 
   // Sort by date ascending
   filteredItems.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -375,10 +384,6 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
       return itemDateStr === dayStr;
     });
   };
-
-  const examCount = unifiedItems.filter((i) => i.eventType === "EXAM").length;
-  const testCount = unifiedItems.filter((i) => i.eventType === "TEST").length;
-  const lectureCount = unifiedItems.filter((i) => i.eventType === "LECTURE" || i.eventType === "EXERCISE").length;
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-sm p-6 md:p-8 space-y-6">
@@ -440,39 +445,38 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
             <Plus className="w-3.5 h-3.5" /> {t.addExamDateBtn}
           </button>
 
-          {/* Merge Duplicate Courses Button */}
-          <button
-            onClick={handleMergeCourses}
-            disabled={isMergingCourses}
-            title={lang === "de" ? "Doppelte Termine gleicher Modulnummern (330...) automatisch zu einem Modul bündeln" : "Merge courses with identical course numbers"}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-all shadow-sm disabled:opacity-50"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>{isMergingCourses ? (lang === "de" ? "Bündle..." : "Merging...") : (lang === "de" ? "Module bündeln" : "Merge")}</span>
-          </button>
-
           {/* Reset Calendar Button */}
           <button
             onClick={() => setIsResetModalOpen(true)}
             title={lang === "de" ? "Gesamten Kalender zurücksetzen & Termine leeren" : "Reset entire calendar & clear events"}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-all shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/70 dark:hover:bg-rose-900/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 transition-all shadow-sm"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-            <span>{lang === "de" ? "Kalender zurücksetzen" : "Reset"}</span>
+            <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+            <span>{lang === "de" ? "🗑️ Kalender zurücksetzen" : "🗑️ Reset Calendar"}</span>
           </button>
         </div>
       </div>
 
-      {mergeMessage && (
-        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2 animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-          <span>{mergeMessage}</span>
-        </div>
-      )}
+      {/* FARB-LEGENDE */}
+      <div className="flex items-center gap-2 text-xs flex-wrap p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60">
+        <span className="font-bold text-slate-500 mr-1">{lang === "de" ? "Farben:" : "Colors:"}</span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-bold border border-rose-300 dark:border-rose-800 text-[11px]">
+          🔥 {lang === "de" ? "Klausur (Rot)" : "Exam (Red)"}
+        </span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800 text-[11px]">
+          ⚡ {lang === "de" ? "Test (Orange)" : "Test (Orange)"}
+        </span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 font-medium border border-sky-300 dark:border-sky-800 text-[11px]">
+          📚 {lang === "de" ? "Vorlesung (Blau)" : "Lecture (Blue)"}
+        </span>
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-medium border border-emerald-300 dark:border-emerald-800 text-[11px]">
+          ✏️ {lang === "de" ? "Übung (Grün)" : "Exercise (Green)"}
+        </span>
+      </div>
 
       {/* FILTER TABS */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-        <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs">
+        <div className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 text-xs flex-wrap gap-1">
           <button
             type="button"
             onClick={() => setEventFilter("all")}
@@ -486,38 +490,58 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           </button>
           <button
             type="button"
-            onClick={() => setEventFilter("exams_tests")}
+            onClick={() => setEventFilter("exams")}
             className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
-              eventFilter === "exams_tests"
-                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
+              eventFilter === "exams"
+                ? "bg-rose-100 dark:bg-rose-950 text-rose-900 dark:text-rose-200 shadow-sm border border-rose-300 dark:border-rose-800"
+                : "text-slate-500 hover:text-rose-600 dark:hover:text-rose-400"
             }`}
           >
             <Flame className="w-3 h-3 text-rose-500" />
-            {lang === "de"
-              ? `Klausuren & Tests (${examCount + testCount})`
-              : `Exams & Tests (${examCount + testCount})`}
+            {lang === "de" ? `Klausuren (${examCount})` : `Exams (${examCount})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEventFilter("tests")}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+              eventFilter === "tests"
+                ? "bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-200 shadow-sm border border-amber-300 dark:border-amber-800"
+                : "text-slate-500 hover:text-amber-600 dark:hover:text-amber-400"
+            }`}
+          >
+            <Zap className="w-3 h-3 text-amber-500" />
+            {lang === "de" ? `Tests (${testCount})` : `Tests (${testCount})`}
           </button>
           <button
             type="button"
             onClick={() => setEventFilter("lectures")}
             className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
               eventFilter === "lectures"
-                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
+                ? "bg-sky-100 dark:bg-sky-950 text-sky-900 dark:text-sky-200 shadow-sm border border-sky-300 dark:border-sky-800"
+                : "text-slate-500 hover:text-sky-600 dark:hover:text-sky-400"
             }`}
           >
             <BookOpen className="w-3 h-3 text-sky-500" />
-            {lang === "de"
-              ? `Vorlesungen & Übungen (${lectureCount})`
-              : `Lectures & Exercises (${lectureCount})`}
+            {lang === "de" ? `Vorlesungen (${lectureCount})` : `Lectures (${lectureCount})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEventFilter("exercises")}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+              eventFilter === "exercises"
+                ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-200 shadow-sm border border-emerald-300 dark:border-emerald-800"
+                : "text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400"
+            }`}
+          >
+            <span>✏️</span>
+            {lang === "de" ? `Übungen (${exerciseCount})` : `Exercises (${exerciseCount})`}
           </button>
         </div>
 
         {/* TU Wien Maps Hint */}
-        <div className="text-[11px] text-slate-400 flex items-center gap-1">
-          <MapPin className="w-3 h-3 text-rose-500" />
-          <span>Hörsäle & Räume direkt mit TU Wien Maps / Campus Maps verlinkt</span>
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 px-2.5 py-1 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+          <MapPin className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
+          <span>Hörsäle & Räume mit <strong>TU Wien Maps</strong> verlinkt</span>
         </div>
       </div>
 
@@ -582,8 +606,14 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
               return (
                 <div
                   key={day.toISOString()}
-                  onClick={() => handleOpenAddForDate(day)}
-                  className={`h-28 p-2 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group overflow-hidden ${
+                  onClick={() => {
+                    if (dayItems.length > 0) {
+                      setSelectedDayForDetail(day);
+                    } else {
+                      handleOpenAddForDate(day);
+                    }
+                  }}
+                  className={`min-h-[130px] p-2 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group overflow-hidden ${
                     isToday
                       ? "border-indigo-600 bg-indigo-50/20 dark:bg-indigo-950/20 ring-1 ring-indigo-500/30"
                       : "border-slate-200/80 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-slate-700 bg-white dark:bg-slate-900/60"
@@ -599,13 +629,26 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                     >
                       {day.getDate()}
                     </span>
-                    {hasExamsOnDay && (
-                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                    )}
+                    <div className="flex items-center gap-1">
+                      {hasExamsOnDay && (
+                        <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenAddForDate(day);
+                        }}
+                        title="Termin an diesem Tag hinzufügen"
+                        className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-indigo-600 transition-opacity"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Pills inside day slot */}
-                  <div className="space-y-1 overflow-y-auto max-h-16 scrollbar-none">
+                  <div className="space-y-1 overflow-y-auto max-h-24 scrollbar-none my-1">
                     {dayItems.map((item) => {
                       let badgeStyles =
                         "bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-900 dark:text-indigo-200 border-indigo-200 dark:border-indigo-800";
@@ -613,40 +656,55 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
 
                       if (item.eventType === "EXAM") {
                         badgeStyles =
-                          "bg-rose-100 hover:bg-rose-200 dark:bg-rose-950 dark:hover:bg-rose-900 text-rose-900 dark:text-rose-200 border-rose-200 dark:border-rose-800 font-bold";
+                          "bg-rose-100 hover:bg-rose-200 dark:bg-rose-950 dark:hover:bg-rose-900 text-rose-900 dark:text-rose-200 border-rose-300 dark:border-rose-800 font-bold";
                         icon = "🔥";
                       } else if (item.eventType === "TEST") {
                         badgeStyles =
-                          "bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-200 border-amber-200 dark:border-amber-800 font-bold";
+                          "bg-amber-100 hover:bg-amber-200 dark:bg-amber-950 dark:hover:bg-amber-900 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-800 font-bold";
                         icon = "⚡";
                       } else if (item.eventType === "LECTURE") {
                         badgeStyles =
-                          "bg-sky-100 hover:bg-sky-200 dark:bg-sky-950 dark:hover:bg-sky-900 text-sky-900 dark:text-sky-200 border-sky-200 dark:border-sky-800";
+                          "bg-sky-100 hover:bg-sky-200 dark:bg-sky-950 dark:hover:bg-sky-900 text-sky-900 dark:text-sky-200 border-sky-300 dark:border-sky-800";
                         icon = "📚";
                       } else if (item.eventType === "EXERCISE") {
                         badgeStyles =
-                          "bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950 dark:hover:bg-emerald-900 text-emerald-900 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800";
+                          "bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950 dark:hover:bg-emerald-900 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-800";
                         icon = "✏️";
                       }
 
                       return (
-                        <Link
+                        <div
                           key={item.id}
-                          href={`/module/${item.moduleId}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className={`block px-1.5 py-0.5 rounded-lg text-[10px] truncate border transition-colors ${badgeStyles}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedDayForDetail(day);
+                          }}
+                          className={`block px-1.5 py-1 rounded-lg text-[10px] border transition-colors shadow-2xs hover:opacity-90 ${badgeStyles}`}
                           title={`${icon} ${item.title}${item.time ? ` (${item.time})` : ""}${item.location ? ` @ ${item.location}` : ""}`}
                         >
-                          <span className="mr-0.5">{icon}</span>
-                          {item.moduleCode ? `${item.moduleCode}: ` : ""}
-                          {item.title}
-                        </Link>
+                          <div className="flex items-center justify-between gap-1 leading-tight">
+                            <span className="font-bold truncate flex items-center gap-0.5">
+                              <span>{icon}</span>
+                              {item.time && <span>{item.time}</span>}
+                            </span>
+                            {item.location && (
+                              <span className="text-[9px] opacity-75 truncate max-w-[55px]">
+                                📍 {item.location.split("-")[0].trim()}
+                              </span>
+                            )}
+                          </div>
+                          <div className="truncate font-medium mt-0.5">
+                            {item.moduleCode ? `[${item.moduleCode}] ` : ""}
+                            {item.title}
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
 
-                  <div className="text-[10px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity text-right">
-                    + Termin
+                  <div className="text-[10px] text-slate-400 group-hover:text-indigo-600 transition-colors flex items-center justify-between">
+                    <span>{dayItems.length > 0 ? `${dayItems.length} Termin(e)` : ""}</span>
+                    <span className="opacity-0 group-hover:opacity-100">+ Termin</span>
                   </div>
                 </div>
               );
@@ -777,12 +835,22 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                     {item.readinessScore !== undefined && (
                       <FahrschulBar score={item.readinessScore} size="sm" />
                     )}
-                    <Link
-                      href={`/module/${item.moduleId}?tab=trainer`}
-                      className="w-full py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all"
-                    >
-                      {item.eventType === "EXAM" ? t.openTrainer : "Zum Modul"} <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/module/${item.moduleId}?tab=trainer`}
+                        className="flex-1 py-2 px-3 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center justify-center gap-1.5 transition-all"
+                      >
+                        {item.eventType === "EXAM" ? t.openTrainer : "Zum Modul"} <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSingleEvent(item.id)}
+                        title="Termin entfernen"
+                        className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 border border-slate-200/80 dark:border-slate-700 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -1045,6 +1113,174 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                   {isResetting
                     ? (lang === "de" ? "Wird zurückgesetzt..." : "Resetting...")
                     : (lang === "de" ? "Ja, Kalender zurücksetzen" : "Yes, Reset Calendar")}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
+      {/* Day Schedule Detail Modal */}
+      {selectedDayForDetail && (
+        <Portal>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-6 overflow-y-auto">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150 my-auto space-y-4 max-h-[85vh] flex flex-col">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                    <CalendarIcon className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white capitalize">
+                      {selectedDayForDetail.toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
+                        weekday: "long",
+                        day: "2-digit",
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {getItemsForDay(selectedDayForDetail).length}{" "}
+                      {lang === "de" ? "Termine an diesem Tag" : "events on this day"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedDayForDetail(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold p-1 rounded-lg"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* List of events on this day */}
+              <div className="space-y-3 overflow-y-auto flex-1 pr-1">
+                {getItemsForDay(selectedDayForDetail).map((item) => {
+                  const mapInfo = item.location ? getCampusMapInfo(item.location) : null;
+                  let typeBadge = (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 border border-sky-300 dark:border-sky-800 flex items-center gap-1">
+                      📚 {lang === "de" ? "Vorlesung" : "Lecture"}
+                    </span>
+                  );
+                  if (item.eventType === "EXAM") {
+                    typeBadge = (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1">
+                        🔥 {lang === "de" ? "Klausur" : "Exam"}
+                      </span>
+                    );
+                  } else if (item.eventType === "TEST") {
+                    typeBadge = (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                        ⚡ {lang === "de" ? "Test" : "Test"}
+                      </span>
+                    );
+                  } else if (item.eventType === "EXERCISE") {
+                    typeBadge = (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                        ✏️ {lang === "de" ? "Übung" : "Exercise"}
+                      </span>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/70 space-y-2.5 transition-all shadow-2xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-1 min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {typeBadge}
+                            <span className="text-xs font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold">
+                              {item.moduleCode || item.moduleName}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white pt-0.5">
+                            {item.title}
+                          </h4>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSingleEvent(item.id)}
+                          title="Termin entfernen"
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Time and Location details */}
+                      <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                        {item.time && (
+                          <div className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
+                            <Clock className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                            <span>⏰ {item.time} Uhr</span>
+                          </div>
+                        )}
+
+                        {item.location && mapInfo && (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <MapPin className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              {item.location}
+                            </span>
+                            {mapInfo.url && (
+                              <a
+                                href={mapInfo.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-100 hover:bg-sky-200 dark:bg-sky-950 dark:hover:bg-sky-900 text-sky-800 dark:text-sky-300 font-bold text-[11px] transition-colors shadow-2xs"
+                                title={`In ${mapInfo.providerName} öffnen`}
+                              >
+                                <span>🗺️ {mapInfo.badgeLabel}</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        {item.description && (
+                          <p className="text-[11px] text-slate-500 pt-1 italic line-clamp-2">
+                            {item.description}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="pt-1 flex items-center justify-end">
+                        <Link
+                          href={`/module/${item.moduleId}`}
+                          onClick={() => setSelectedDayForDetail(null)}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                        >
+                          <span>{lang === "de" ? "Zum Modul" : "Go to module"}</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDayForDetail(null)}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const day = selectedDayForDetail;
+                    setSelectedDayForDetail(null);
+                    handleOpenAddForDate(day);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{lang === "de" ? "Weiteren Termin anlegen" : "Add Another Event"}</span>
                 </button>
               </div>
             </div>

@@ -567,7 +567,11 @@ export function IcsImportModal({
                                         </div>
                                         <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
                                           <span>{ev.dateStr}</span>
-                                          {ev.timeStr && <span>• {ev.timeStr} Uhr</span>}
+                                          {ev.timeStr && (
+                                            <span className="font-medium text-slate-700 dark:text-slate-300">
+                                              • {ev.timeStr}{ev.endTimeStr ? ` – ${ev.endTimeStr}` : ""} Uhr
+                                            </span>
+                                          )}
                                           {ev.location && (
                                             <span className="flex items-center gap-1 truncate">
                                               • <MapPin className="w-3 h-3 text-rose-500 flex-shrink-0" />

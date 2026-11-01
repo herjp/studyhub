@@ -58,7 +58,8 @@ export function getCampusMapInfo(rawLocation?: string | null, preferredUniversit
     "ei ", "ei1", "ei2", "ei3", "ei4", "ei5", "ei6", "ei7", "ei8", "ei9", "ei10", "ei11",
     "fh ", "freihaus", "kuppelsaal", "prechtl", "radinger", "gußhaus", "gusshaus",
     "karlsplatz", "favoritenstraße", "treitlstraße", "getreidemarkt", "seminarraum",
-    "informatikhörsaal", "fritz paschke", "boecklsaal", "stiege", "audi.max", "audimax"
+    "informatikhörsaal", "fritz paschke", "boecklsaal", "stiege", "audi.max", "audimax",
+    "theresianum", "theresianumgasse", "hs 1", "hs 2", "hs 3", "hs 4", "hs 5"
   ];
 
   const hasTuWienPattern = tuWienKeywords.some((kw) => lower.includes(kw));
