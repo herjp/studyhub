@@ -330,7 +330,7 @@ export function EctsCalculatorModal({
                         </div>
                         {sem.semGpa !== null && (
                           <span className="text-[10px] text-slate-500">
-                            Ø Note: {formatGrade(sem.semGpa)}
+                            {lang === "de" ? "Ø Note:" : "Avg Grade:"} {formatGrade(sem.semGpa)}
                           </span>
                         )}
                       </div>

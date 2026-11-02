@@ -515,22 +515,22 @@ export function IcsImportModal({
                               <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1 flex-wrap">
                                 {group.examCount > 0 && (
                                   <span className="inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400">
-                                    <Flame className="w-3 h-3" /> {group.examCount} Klausur
+                                    <Flame className="w-3 h-3" /> {group.examCount} {lang === "de" ? "Klausur(en)" : "Exam(s)"}
                                   </span>
                                 )}
                                 {group.testCount > 0 && (
                                   <span className="inline-flex items-center gap-1 font-bold text-amber-600 dark:text-amber-400">
-                                    <Zap className="w-3 h-3" /> {group.testCount} Test
+                                    <Zap className="w-3 h-3" /> {group.testCount} Test{group.testCount > 1 ? "s" : ""}
                                   </span>
                                 )}
                                 {group.lectureCount > 0 && (
                                   <span className="inline-flex items-center gap-1">
-                                    <BookOpen className="w-3 h-3 text-sky-500" /> {group.lectureCount} Vorlesung(en)
+                                    <BookOpen className="w-3 h-3 text-sky-500" /> {group.lectureCount} {lang === "de" ? "Vorlesung(en)" : "Lecture(s)"}
                                   </span>
                                 )}
                                 {group.exerciseCount > 0 && (
                                   <span className="inline-flex items-center gap-1">
-                                    ✏️ {group.exerciseCount} Übung(en)
+                                    ✏️ {group.exerciseCount} {lang === "de" ? "Übung(en)" : "Exercise(s)"}
                                   </span>
                                 )}
                               </div>
@@ -542,7 +542,7 @@ export function IcsImportModal({
                               onClick={() => toggleGroupExpanded(group.cleanModuleName)}
                               className="px-2 py-1 text-[11px] font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 flex items-center gap-1 flex-shrink-0"
                             >
-                              <span>{group.allEvents.length} Termine</span>
+                              <span>{group.allEvents.length} {lang === "de" ? "Termine" : "Events"}</span>
                               {isExpanded ? (
                                 <ChevronUp className="w-3 h-3" />
                               ) : (
@@ -578,7 +578,7 @@ export function IcsImportModal({
                             >
                               {group.matchedModuleId && (
                                 <option value={group.matchedModuleId}>
-                                  ✨ Zuordnen zu "{group.matchedModuleName}" (Auto-Match)
+                                  ✨ {lang === "de" ? `Zuordnen zu "${group.matchedModuleName}" (Auto-Match)` : `Link to "${group.matchedModuleName}" (Auto-Match)`}
                                 </option>
                               )}
                               <option value="create_new">
@@ -613,9 +613,9 @@ export function IcsImportModal({
                         {isExpanded && (
                           <div className="p-3 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/40 rounded-b-2xl space-y-2">
                             <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between">
-                              <span>Termine für {group.cleanModuleName}:</span>
+                              <span>{lang === "de" ? "Termine für" : "Events for"} {group.cleanModuleName}:</span>
                               <span className="text-[10px] text-slate-400 font-normal">
-                                Häkchen setzen um Termin zu importieren
+                                {lang === "de" ? "Häkchen setzen um Termin zu importieren" : "Check box to import event"}
                               </span>
                             </div>
 
@@ -624,31 +624,31 @@ export function IcsImportModal({
                                 const mapInfo = getCampusMapInfo(ev.location, preferredUniversity, customUniversity);
                                 let typeBadge = (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/60 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium">
-                                    Termin
+                                    {lang === "de" ? "Termin" : "Event"}
                                   </span>
                                 );
                                 if (ev.eventType === "EXAM") {
                                   typeBadge = (
                                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
-                                      🔥 Klausur
+                                      🔥 {lang === "de" ? "Klausur" : "Exam"}
                                     </span>
                                   );
                                 } else if (ev.eventType === "TEST") {
                                   typeBadge = (
                                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                                      ⚡ Test
+                                      ⚡ {lang === "de" ? "Test" : "Test"}
                                     </span>
                                   );
                                 } else if (ev.eventType === "LECTURE") {
                                   typeBadge = (
                                     <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300">
-                                      Vorlesung
+                                      {lang === "de" ? "Vorlesung" : "Lecture"}
                                     </span>
                                   );
                                 } else if (ev.eventType === "EXERCISE") {
                                   typeBadge = (
                                     <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                                      Übung
+                                      {lang === "de" ? "Übung" : "Exercise"}
                                     </span>
                                   );
                                 }
@@ -693,7 +693,7 @@ export function IcsImportModal({
                                                   rel="noopener noreferrer"
                                                   onClick={(e) => e.stopPropagation()}
                                                   className="text-sky-600 hover:underline flex items-center gap-0.5"
-                                                  title={`In ${mapInfo.providerName} öffnen`}
+                                                  title={lang === "de" ? `In ${mapInfo.providerName} öffnen` : `Open in ${mapInfo.providerName}`}
                                                 >
                                                   {mapInfo.cleanLocation}
                                                   <ExternalLink className="w-2.5 h-2.5" />

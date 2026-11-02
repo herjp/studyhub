@@ -155,7 +155,13 @@ export function SemesterTabs({
 
   const handleDelete = async (id: string) => {
     setMenuAnchor(null);
-    if (!confirm("Semester wirklich löschen? Alle zugehörigen Module werden ebenfalls gelöscht.")) {
+    if (
+      !confirm(
+        lang === "de"
+          ? "Semester wirklich löschen? Alle zugehörigen Module werden ebenfalls gelöscht."
+          : "Delete this semester? All associated courses and exams will also be deleted."
+      )
+    ) {
       return;
     }
     try {

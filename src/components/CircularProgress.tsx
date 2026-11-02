@@ -1,4 +1,5 @@
 import React from "react";
+import { useLanguage } from "@/lib/i18n";
 
 interface CircularProgressProps {
   value: number; // current value
@@ -17,6 +18,7 @@ export function CircularProgress({
   label,
   sublabel,
 }: CircularProgressProps) {
+  const { lang } = useLanguage();
   const safeMax = Math.max(1, max);
   const percentage = Math.min(100, Math.round((value / safeMax) * 100));
 
@@ -54,7 +56,7 @@ export function CircularProgress({
           <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
             {value}/{max}
           </span>
-          <span className="text-[9px] text-slate-500 font-medium">Fragen</span>
+          <span className="text-[9px] text-slate-500 font-medium">{lang === "de" ? "Fragen" : "Qs"}</span>
         </div>
       </div>
 

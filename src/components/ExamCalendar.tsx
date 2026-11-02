@@ -171,7 +171,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
     try {
       const res = await fetch("/api/calendar/merge-courses", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Fehler beim Zusammenführen");
+      if (!res.ok) throw new Error(data.error || (lang === "de" ? "Fehler beim Zusammenführen" : "Error merging courses"));
       setMergeMessage(data.message);
       await fetchCalendarData();
       if (onExamUpdated) onExamUpdated();
@@ -291,7 +291,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Fehler beim Zurücksetzen des Kalenders");
+        throw new Error(data.error || (lang === "de" ? "Fehler beim Zurücksetzen des Kalenders" : "Failed to reset calendar"));
       }
 
       setResetMessage(
@@ -311,7 +311,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
         setResetMessage(null);
       }, 1400);
     } catch (err: any) {
-      setResetError(err.message || "Fehler beim Zurücksetzen");
+      setResetError(err.message || (lang === "de" ? "Fehler beim Zurücksetzen" : "Reset failed"));
     } finally {
       setIsResetting(false);
     }
@@ -703,7 +703,13 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           title={lang === "de" ? "Klicken, um Campus-Navigationssystem zu wechseln" : "Click to change campus map provider"}
         >
           <MapPin className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
-          <span>Hörsäle & Räume mit <strong>{activeMapName}</strong> verlinkt</span>
+          <span>
+            {lang === "de" ? (
+              <>Hörsäle & Räume mit <strong>{activeMapName}</strong> verlinkt</>
+            ) : (
+              <>Rooms & halls linked via <strong>{activeMapName}</strong></>
+            )}
+          </span>
         </div>
       </div>
 
@@ -801,7 +807,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                           e.stopPropagation();
                           handleOpenAddForDate(day);
                         }}
-                        title="Termin an diesem Tag hinzufügen"
+                        title={lang === "de" ? "Termin an diesem Tag hinzufügen" : "Add event on this date"}
                         className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-indigo-600 transition-opacity"
                       >
                         <Plus className="w-3.5 h-3.5" />
@@ -1381,7 +1387,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                         <button
                           type="button"
                           onClick={() => handleDeleteSingleEvent(item.id)}
-                          title="Termin entfernen"
+                          title={lang === "de" ? "Termin entfernen" : "Remove event"}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1393,7 +1399,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                         {item.time && (
                           <div className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
                             <Clock className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
-                            <span>⏰ {item.time} Uhr</span>
+                            <span>⏰ {item.time} {lang === "de" ? "Uhr" : ""}</span>
                           </div>
                         )}
 
@@ -1409,7 +1415,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-all shadow-sm hover:shadow"
-                                title={`In ${mapInfo.providerName} nach ${mapInfo.cleanLocation} suchen`}
+                                title={lang === "de" ? `In ${mapInfo.providerName} nach ${mapInfo.cleanLocation} suchen` : `Search ${mapInfo.cleanLocation} in ${mapInfo.providerName}`}
                               >
                                 <span>🔍 {mapInfo.isOnline ? mapInfo.badgeLabel : `${lang === "de" ? "Raum sofort suchen" : "Search room"}: ${mapInfo.cleanLocation}`}</span>
                                 <ExternalLink className="w-3 h-3 ml-0.5" />
@@ -1421,7 +1427,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:underline"
-                                title="Campus auf Google Maps anzeigen"
+                                title={lang === "de" ? "Campus auf Google Maps anzeigen" : "Show campus on Google Maps"}
                               >
                                 <span>📍 Google Maps</span>
                                 <ExternalLink className="w-2.5 h-2.5" />

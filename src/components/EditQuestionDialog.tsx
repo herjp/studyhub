@@ -138,7 +138,7 @@ export function EditQuestionDialog({
 
   const handleRemoveOption = (idx: number) => {
     if (options.length <= 2) {
-      alert("Eine Aufgabe benötigt mindestens 2 Optionen bzw. Paare.");
+      alert(lang === "de" ? "Eine Aufgabe benötigt mindestens 2 Optionen bzw. Paare." : "A question requires at least 2 options or pairs.");
       return;
     }
     setOptions(options.filter((_, i) => i !== idx));
@@ -147,26 +147,26 @@ export function EditQuestionDialog({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!questionText.trim()) {
-      setError("Bitte gib einen Fragentext ein.");
+      setError(lang === "de" ? "Bitte gib einen Fragentext ein." : "Please enter a question text.");
       return;
     }
 
     if (type === "MATCHING") {
       if (options.length < 2) {
-        setError("Eine Zuordnungsaufgabe benötigt mindestens 2 Begriff-Zielfeld-Paare.");
+        setError(lang === "de" ? "Eine Zuordnungsaufgabe benötigt mindestens 2 Begriff-Zielfeld-Paare." : "A matching question requires at least 2 pairs.");
         return;
       }
       if (options.some((o) => !o.text.trim() || !(o.target || "").trim())) {
-        setError("Bitte fülle bei allen Paaren Begriff und Zielfeld aus.");
+        setError(lang === "de" ? "Bitte fülle bei allen Paaren Begriff und Zielfeld aus." : "Please fill in term and target slot for all pairs.");
         return;
       }
     } else if (type !== "FREE_TEXT") {
       if (options.some((o) => !o.text.trim())) {
-        setError("Bitte fülle alle Antwortoptionen aus oder lösche leere Optionen.");
+        setError(lang === "de" ? "Bitte fülle alle Antwortoptionen aus oder lösche leere Optionen." : "Please fill in all answer options or delete empty ones.");
         return;
       }
       if (!options.some((o) => o.isCorrect)) {
-        setError("Mindestens eine Antwortoption muss als 'richtig' markiert sein.");
+        setError(lang === "de" ? "Mindestens eine Antwortoption muss als 'richtig' markiert sein." : "At least one answer option must be marked as correct.");
         return;
       }
     }
@@ -190,13 +190,13 @@ export function EditQuestionDialog({
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "Speichern fehlgeschlagen");
+        throw new Error(data.error || (lang === "de" ? "Speichern fehlgeschlagen" : "Save failed"));
       }
 
       onQuestionUpdated();
       onClose();
     } catch (err: any) {
-      setError(err.message || "Fehler beim Speichern der Frage.");
+      setError(err.message || (lang === "de" ? "Fehler beim Speichern der Frage." : "Error saving question."));
     } finally {
       setSaving(false);
     }
@@ -213,10 +213,12 @@ export function EditQuestionDialog({
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Klausurfrage bearbeiten
+                  {lang === "de" ? "Klausurfrage bearbeiten" : "Edit Exam Question"}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Passe Fragentext, Antwortoptionen oder die Musterlösung an.
+                  {lang === "de"
+                    ? "Passe Fragentext, Antwortoptionen oder die Musterlösung an."
+                    : "Adjust question text, options, or sample solution."}
                 </p>
               </div>
             </div>
@@ -239,7 +241,7 @@ export function EditQuestionDialog({
             {/* Question Type Selector */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                Fragetyp
+                {lang === "de" ? "Fragetyp" : "Question Type"}
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <button
@@ -273,7 +275,7 @@ export function EditQuestionDialog({
                       : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
                   }`}
                 >
-                  <ArrowLeftRight className="w-4 h-4" /> Zuordnung
+                  <ArrowLeftRight className="w-4 h-4" /> {lang === "de" ? "Zuordnung" : "Matching"}
                 </button>
                 <button
                   type="button"
@@ -284,7 +286,7 @@ export function EditQuestionDialog({
                       : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
                   }`}
                 >
-                  <Sparkles className="w-4 h-4" /> Freitext
+                  <Sparkles className="w-4 h-4" /> {lang === "de" ? "Freitext" : "Free Text"}
                 </button>
               </div>
             </div>
@@ -292,14 +294,14 @@ export function EditQuestionDialog({
             {/* Question Text */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Fragestellung / Aufgabenstellung *
+                {lang === "de" ? "Fragestellung / Aufgabenstellung *" : "Question / Problem Statement *"}
               </label>
               <textarea
                 value={questionText}
                 onChange={(e) => setQuestionText(e.target.value)}
                 rows={3}
                 className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="z. B. Welche Eigenschaften kennzeichnen das Saga-Pattern in Microservices?"
+                placeholder={lang === "de" ? "z. B. Welche Eigenschaften kennzeichnen das Saga-Pattern in Microservices?" : "e.g. Which properties characterize the Saga pattern in microservices?"}
               />
             </div>
 
@@ -308,14 +310,14 @@ export function EditQuestionDialog({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Zuordnungspaare (Begriff ➔ Zielfeld / Definition)
+                    {lang === "de" ? "Zuordnungspaare (Begriff ➔ Zielfeld / Definition)" : "Matching Pairs (Term ➔ Target Slot / Definition)"}
                   </label>
                   <button
                     type="button"
                     onClick={handleAddOption}
                     className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Paar hinzufügen
+                    <Plus className="w-3.5 h-3.5" /> {lang === "de" ? "Paar hinzufügen" : "Add pair"}
                   </button>
                 </div>
 
@@ -327,13 +329,13 @@ export function EditQuestionDialog({
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold text-slate-500">
-                          Paar #{idx + 1}
+                          {lang === "de" ? "Paar" : "Pair"} #{idx + 1}
                         </span>
                         <button
                           type="button"
                           onClick={() => handleRemoveOption(idx)}
                           className="p-1 rounded text-slate-400 hover:text-rose-600 transition-colors"
-                          title="Paar löschen"
+                          title={lang === "de" ? "Paar löschen" : "Delete pair"}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -342,26 +344,26 @@ export function EditQuestionDialog({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
-                            Begriff / Schema-Bezeichnung
+                            {lang === "de" ? "Begriff / Schema-Bezeichnung" : "Term / Label"}
                           </label>
                           <input
                             type="text"
                             value={opt.text}
                             onChange={(e) => handleOptionTextChange(idx, e.target.value)}
-                            placeholder="z. B. Chloroplast"
+                            placeholder={lang === "de" ? "z. B. Chloroplast" : "e.g. Chloroplast"}
                             className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800"
                           />
                         </div>
 
                         <div>
                           <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
-                            Zielfeld / Definition
+                            {lang === "de" ? "Zielfeld / Definition" : "Target Slot / Definition"}
                           </label>
                           <input
                             type="text"
                             value={opt.target || ""}
                             onChange={(e) => handleOptionTargetChange(idx, e.target.value)}
-                            placeholder="z. B. Ort der Photosynthese"
+                            placeholder={lang === "de" ? "z. B. Ort der Photosynthese" : "e.g. Site of photosynthesis"}
                             className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800"
                           />
                         </div>
@@ -371,7 +373,7 @@ export function EditQuestionDialog({
                         type="text"
                         value={opt.explanation}
                         onChange={(e) => handleOptionExplanationChange(idx, e.target.value)}
-                        placeholder="Erklärung / Kontext (optional)..."
+                        placeholder={lang === "de" ? "Erklärung / Kontext (optional)..." : "Explanation / Context (optional)..."}
                         className="w-full px-2.5 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900 text-slate-600 dark:text-slate-300"
                       />
                     </div>
@@ -385,14 +387,16 @@ export function EditQuestionDialog({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Antwortoptionen ({type === "SINGLE_CHOICE" ? "1 richtige Option" : "mehrere Optionen möglich"})
+                    {lang === "de"
+                      ? `Antwortoptionen (${type === "SINGLE_CHOICE" ? "1 richtige Option" : "mehrere Optionen möglich"})`
+                      : `Answer Options (${type === "SINGLE_CHOICE" ? "1 correct option" : "multiple options allowed"})`}
                   </label>
                   <button
                     type="button"
                     onClick={handleAddOption}
                     className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Option hinzufügen
+                    <Plus className="w-3.5 h-3.5" /> {lang === "de" ? "Option hinzufügen" : "Add Option"}
                   </button>
                 </div>
 
@@ -417,7 +421,9 @@ export function EditQuestionDialog({
                           }`}
                         >
                           <Check className="w-3 h-3" />
-                          {opt.isCorrect ? "Richtig" : "Als Richtig markieren"}
+                          {opt.isCorrect
+                            ? (lang === "de" ? "Richtig" : "Correct")
+                            : (lang === "de" ? "Als Richtig markieren" : "Mark as Correct")}
                         </button>
                         <span className="text-[11px] text-slate-400 font-semibold ml-auto">
                           Option {idx + 1}
@@ -426,7 +432,7 @@ export function EditQuestionDialog({
                           type="button"
                           onClick={() => handleRemoveOption(idx)}
                           className="p-1 rounded text-slate-400 hover:text-rose-600 transition-colors"
-                          title="Option löschen"
+                          title={lang === "de" ? "Option löschen" : "Delete option"}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -436,7 +442,7 @@ export function EditQuestionDialog({
                         type="text"
                         value={opt.text}
                         onChange={(e) => handleOptionTextChange(idx, e.target.value)}
-                        placeholder={`Antworttext für Option ${idx + 1}...`}
+                        placeholder={lang === "de" ? `Antworttext für Option ${idx + 1}...` : `Answer text for option ${idx + 1}...`}
                         className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 mb-1.5"
                       />
 
@@ -444,7 +450,7 @@ export function EditQuestionDialog({
                         type="text"
                         value={opt.explanation}
                         onChange={(e) => handleOptionExplanationChange(idx, e.target.value)}
-                        placeholder="Erklärung (warum richtig/falsch - optional)..."
+                        placeholder={lang === "de" ? "Erklärung (warum richtig/falsch - optional)..." : "Explanation (why correct/incorrect - optional)..."}
                         className="w-full px-2.5 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900 text-slate-600 dark:text-slate-300"
                       />
                     </div>
@@ -456,28 +462,28 @@ export function EditQuestionDialog({
             {/* Sample Solution (especially for Free Text) */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Musterlösung / Erwartete Antwort
+                {lang === "de" ? "Musterlösung / Erwartete Antwort" : "Sample Solution / Expected Answer"}
               </label>
               <textarea
                 value={sampleSolution}
                 onChange={(e) => setSampleSolution(e.target.value)}
                 rows={type === "FREE_TEXT" ? 4 : 2}
                 className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="Ausführliche Musterlösung oder Erläuterung..."
+                placeholder={lang === "de" ? "Ausführliche Musterlösung oder Erläuterung..." : "Detailed sample solution or explanation..."}
               />
             </div>
 
             {/* Source Reference */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Quellenangabe (z. B. Folie, Vorlesung oder Kapitel)
+                {lang === "de" ? "Quellenangabe (z. B. Folie, Vorlesung oder Kapitel)" : "Source Reference (e.g. slide, lecture, or chapter)"}
               </label>
               <input
                 type="text"
                 value={sourceRef}
                 onChange={(e) => setSourceRef(e.target.value)}
                 className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                placeholder="z. B. Vorlesung 03, Folie 24 (Microservices)"
+                placeholder={lang === "de" ? "z. B. Vorlesung 03, Folie 24 (Microservices)" : "e.g. Lecture 03, Slide 24 (Microservices)"}
               />
             </div>
 
@@ -488,7 +494,7 @@ export function EditQuestionDialog({
                 onClick={onClose}
                 className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
-                Abbrechen
+                {t.cancel}
               </button>
               <button
                 type="submit"
@@ -496,7 +502,7 @@ export function EditQuestionDialog({
                 className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all disabled:opacity-50"
               >
                 <Check className="w-3.5 h-3.5" />
-                {saving ? "Wird gespeichert..." : "Änderungen speichern"}
+                {saving ? t.saving : (lang === "de" ? "Änderungen speichern" : "Save Changes")}
               </button>
             </div>
           </form>

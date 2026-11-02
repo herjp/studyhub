@@ -208,7 +208,7 @@ export function ModuleTutorChat({
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Serverfehler (${res.status})`);
+        throw new Error(errorData.error || (lang === "de" ? `Serverfehler (${res.status})` : `Server error (${res.status})`));
       }
 
       const data = await res.json();
@@ -216,7 +216,7 @@ export function ModuleTutorChat({
       const assistantMessage: ChatMessage = {
         id: "a-" + Date.now(),
         role: "assistant",
-        content: data.answer || "Erklärung generiert.",
+        content: data.answer || (lang === "de" ? "Erklärung generiert." : "Explanation generated."),
         sources: data.sources || [],
         examTip: data.examTip,
         followUpSuggestions: data.followUpSuggestions || [],
@@ -298,7 +298,7 @@ export function ModuleTutorChat({
                   className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer"
                 >
                   <Cpu className="w-3 h-3 text-indigo-500" />
-                  <span>Gemini AI aktiv</span>
+                  <span>{lang === "de" ? "Gemini AI aktiv" : "Gemini AI active"}</span>
                 </button>
               ) : (
                 <button
@@ -387,10 +387,10 @@ export function ModuleTutorChat({
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline"
               >
-                <span>Google AI Studio Key holen (dauert 30 Sek., kostenlos)</span>
+                <span>{lang === "de" ? "Google AI Studio Key holen (dauert 30 Sek., kostenlos)" : "Get Google AI Studio Key (free, 30s)"}</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
-              <span>Funktioniert auch ohne Key mit der lokalen Wissens-Engine</span>
+              <span>{lang === "de" ? "Funktioniert auch ohne Key mit lokaler Wissens-Engine" : "Works without key via local knowledge engine"}</span>
             </div>
           </div>
         </div>

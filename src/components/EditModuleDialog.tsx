@@ -234,7 +234,7 @@ export function EditModuleDialog({
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    ECTS-Punkte *
+                    {lang === "de" ? "ECTS-Punkte *" : "ECTS Credits *"}
                   </label>
                   <input
                     type="number"
@@ -268,7 +268,7 @@ export function EditModuleDialog({
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Note (1.0 bis 5.0)
+                    {lang === "de" ? "Note (1.0 bis 5.0)" : "Grade (1.0 to 5.0)"}
                   </label>
                   <input
                     type="number"

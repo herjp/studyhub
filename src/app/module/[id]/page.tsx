@@ -927,7 +927,7 @@ function ModuleDetailContent() {
   };
 
   const handleDeleteDocument = async (docId: string) => {
-    if (!confirm("Dokument wirklich löschen?")) return;
+    if (!confirm(lang === "de" ? "Dokument wirklich löschen?" : "Delete this document?")) return;
     try {
       await fetch(`/api/documents?id=${docId}`, { method: "DELETE" });
       fetchModule();
@@ -939,16 +939,16 @@ function ModuleDetailContent() {
   // Launch Training Sessions
   const startTraining = (mode: "ALL" | "SC" | "MC" | "FREE_TEXT" | "MATCHING" | "DUE" | "SIMULATION") => {
     if (!moduleData?.questions?.length) {
-      alert("Es sind noch keine Fragen für dieses Modul hinterlegt!");
+      alert(lang === "de" ? "Es sind noch keine Fragen für dieses Modul hinterlegt!" : "No questions available for this module yet!");
       return;
     }
 
     let filtered = [...moduleData.questions];
-    let modeLabel = "Klausurtraining";
+    let modeLabel = lang === "de" ? "Klausurtraining" : "Exam Training";
 
     if (mode === "DUE") {
       filtered = moduleData.dueQuestions?.length > 0 ? moduleData.dueQuestions : filtered;
-      modeLabel = "Wiederholung fälliger Fragen (Spaced Repetition)";
+      modeLabel = lang === "de" ? "Wiederholung fälliger Fragen (Spaced Repetition)" : "Review due questions (Spaced Repetition)";
     } else if (mode === "SC") {
       filtered = filtered.filter((q) => q.type === "SINGLE_CHOICE");
       modeLabel = "Single Choice Training";
@@ -957,17 +957,17 @@ function ModuleDetailContent() {
       modeLabel = "Multiple Choice Training";
     } else if (mode === "MATCHING") {
       filtered = filtered.filter((q) => q.type === "MATCHING");
-      modeLabel = "Zuordnungs- & Abbildungstraining (Drag & Drop)";
+      modeLabel = lang === "de" ? "Zuordnungs- & Abbildungstraining (Drag & Drop)" : "Matching & Diagram Training (Drag & Drop)";
     } else if (mode === "FREE_TEXT") {
       filtered = filtered.filter((q) => q.type === "FREE_TEXT");
-      modeLabel = "Freitext-Klausurtraining mit KI-Korrektur";
+      modeLabel = lang === "de" ? "Freitext-Klausurtraining mit KI-Korrektur" : "Free text training with AI evaluation";
     } else if (mode === "SIMULATION") {
-      modeLabel = "Klausursimulation (Realistischer Mix)";
+      modeLabel = lang === "de" ? "Klausursimulation (Realistischer Mix)" : "Exam Simulation (Realistic mix)";
       filtered = [...filtered].sort(() => Math.random() - 0.5);
     }
 
     if (filtered.length === 0) {
-      alert(`Keine Fragen vom Typ ${mode} vorhanden.`);
+      alert(lang === "de" ? `Keine Fragen vom Typ ${mode} vorhanden.` : `No questions of type ${mode} found.`);
       return;
     }
 
@@ -977,7 +977,17 @@ function ModuleDetailContent() {
     }
 
     setQuizQuestions(filtered);
-    setQuizModeName(`${modeLabel} (${filtered.length} ${filtered.length === 1 ? "Frage" : "Fragen"})`);
+    setQuizModeName(
+      `${modeLabel} (${filtered.length} ${
+        filtered.length === 1
+          ? lang === "de"
+            ? "Frage"
+            : "Question"
+          : lang === "de"
+          ? "Fragen"
+          : "Questions"
+      })`
+    );
     setIsQuizOpen(true);
   };
 
@@ -1087,10 +1097,10 @@ function ModuleDetailContent() {
         fetchModule();
       } else {
         const data = await res.json();
-        alert(data.error || "Löschen fehlgeschlagen.");
+        alert(data.error || (lang === "de" ? "Löschen fehlgeschlagen." : "Failed to delete question."));
       }
     } catch (e: any) {
-      alert(e.message || "Fehler beim Löschen.");
+      alert(e.message || (lang === "de" ? "Fehler beim Löschen." : "Error deleting question."));
     } finally {
       setIsDeletingQuestionId(null);
     }
@@ -1138,10 +1148,10 @@ function ModuleDetailContent() {
         fetchModule();
       } else {
         const data = await res.json();
-        alert(data.error || "Fehler beim Löschen der ausgewählten Fragen.");
+        alert(data.error || (lang === "de" ? "Fehler beim Löschen der ausgewählten Fragen." : "Failed to delete selected questions."));
       }
     } catch (e: any) {
-      alert(e.message || "Fehler beim Löschen.");
+      alert(e.message || (lang === "de" ? "Fehler beim Löschen." : "Error deleting questions."));
     } finally {
       setIsBulkDeleting(false);
     }
@@ -1174,7 +1184,7 @@ function ModuleDetailContent() {
       if (res.ok) {
         const data = await res.json();
         setQuizQuestions(data.questions);
-        setQuizModeName("Fokustraining: Lücke schließen (5 Fragen)");
+        setQuizModeName(lang === "de" ? "Fokustraining: Lücke schließen (5 Fragen)" : "Focus Training: Close Knowledge Gap (5 Questions)");
         setIsQuizOpen(true);
         fetchModule();
       }
@@ -1231,9 +1241,9 @@ function ModuleDetailContent() {
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
         <HeaderDashboard />
         <div className="max-w-4xl mx-auto p-8 text-center">
-          <h2 className="text-xl font-bold">Modul nicht gefunden.</h2>
+          <h2 className="text-xl font-bold">{lang === "de" ? "Modul nicht gefunden." : "Course not found."}</h2>
           <Link href="/" className="text-indigo-600 font-semibold underline mt-4 inline-block">
-            Zurück zur Übersicht
+            {lang === "de" ? "Zurück zur Übersicht" : "Back to Overview"}
           </Link>
         </div>
       </div>
@@ -1257,7 +1267,7 @@ function ModuleDetailContent() {
             href="/"
             className="hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1 font-semibold"
           >
-            <ArrowLeft className="w-3.5 h-3.5" /> Semesterübersicht
+            <ArrowLeft className="w-3.5 h-3.5" /> {t.semesterOverview}
           </Link>
           <span>/</span>
           <span className="text-slate-400">{moduleData.semester?.name}</span>
@@ -1276,12 +1286,12 @@ function ModuleDetailContent() {
                   </span>
                 )}
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                  {formatEcts(moduleData.ects)} ECTS Punkte
+                  {formatEcts(moduleData.ects)} {lang === "de" ? "ECTS Punkte" : "ECTS Credits"}
                 </span>
                 {moduleData.status === "COMPLETED" && (
                   <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" /> Bestanden
-                    {moduleData.grade && ` (Note ${formatGrade(moduleData.grade)})`}
+                    <CheckCircle2 className="w-3 h-3" /> {t.passed}
+                    {moduleData.grade && ` (${t.grade}: ${formatGrade(moduleData.grade)})`}
                   </span>
                 )}
                 <button
@@ -1304,18 +1314,18 @@ function ModuleDetailContent() {
                 {daysLeft !== null && daysLeft !== undefined && moduleData?.examDate ? (
                   <span className="inline-flex items-center gap-1.5 font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1 rounded-xl">
                     <Calendar className="w-3.5 h-3.5" />
-                    Klausur in {daysLeft} Tagen (
-                    {!isNaN(new Date(moduleData.examDate).getTime()) ? new Date(moduleData.examDate).toLocaleDateString("de-DE") : moduleData.examDate})
+                    {lang === "de" ? `Klausur in ${daysLeft} Tagen` : `Exam in ${daysLeft} days`} (
+                    {!isNaN(new Date(moduleData.examDate).getTime()) ? new Date(moduleData.examDate).toLocaleDateString(lang === "de" ? "de-DE" : "en-US") : moduleData.examDate})
                   </span>
                 ) : (
                   <span className="text-slate-400 flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5" /> Kein Prüfungstermin gesetzt
+                    <Calendar className="w-3.5 h-3.5" /> {t.noExamDate}
                   </span>
                 )}
                 <span>•</span>
-                <span>{moduleData.questions?.length ?? 0} Prüfungsfragen</span>
+                <span>{moduleData.questions?.length ?? 0} {lang === "de" ? "Prüfungsfragen" : "Exam Questions"}</span>
                 <span>•</span>
-                <span>{moduleData.documents?.length ?? 0} Dokumente</span>
+                <span>{moduleData.documents?.length ?? 0} {lang === "de" ? "Dokumente" : "Documents"}</span>
               </div>
             </div>
 
@@ -1329,11 +1339,11 @@ function ModuleDetailContent() {
                   max={dailyGoal}
                   size={50}
                   strokeWidth={5}
-                  label={`Tagesziel: ${dailyGoal} Fragen`}
+                  label={`${t.dailyGoal}: ${dailyGoal} ${lang === "de" ? "Fragen" : "Qs"}`}
                   sublabel={
                     answeredToday >= dailyGoal
-                      ? "Ziel heute erreicht! 🎯"
-                      : `Noch ${Math.max(0, dailyGoal - answeredToday)} Fragen`
+                      ? (lang === "de" ? "Ziel heute erreicht! 🎯" : "Daily goal achieved! 🎯")
+                      : (lang === "de" ? `Noch ${Math.max(0, dailyGoal - answeredToday)} Fragen` : `${Math.max(0, dailyGoal - answeredToday)} questions left`)
                   }
                 />
               </div>
@@ -1347,10 +1357,10 @@ function ModuleDetailContent() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5 text-indigo-500" />
-                    Klausuraufbau &amp; Dozentenhinweise:
+                    {t.examNotesTitle}
                   </span>
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                    <Sparkles className="w-2.5 h-2.5" /> Steuert KI-Simulation
+                    <Sparkles className="w-2.5 h-2.5" /> {lang === "de" ? "Steuert KI-Simulation" : "Guides AI Simulation"}
                   </span>
                 </div>
 
@@ -1360,28 +1370,30 @@ function ModuleDetailContent() {
                   </p>
                 ) : (
                   <p className="text-xs text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700">
-                    Noch kein Klausuraufbau hinterlegt (z. B. "90 Min, 30% Multiple Choice, 70% Freitext. Dozent legt großen Wert auf CQRS. 1 beidseitiges DIN-A4-Blatt erlaubt"). Klicke auf "Hinweise bearbeiten".
+                    {lang === "de"
+                      ? "Noch kein Klausuraufbau hinterlegt (z. B. '90 Min, 30% Multiple Choice, 70% Freitext. Dozent legt großen Wert auf CQRS. 1 beidseitiges DIN-A4-Blatt erlaubt'). Klicke auf 'Klausuraufbau bearbeiten'."
+                      : "No exam format specified yet (e.g. '90 min, 30% Multiple Choice, 70% Free Text. 1 cheat sheet allowed'). Click 'Edit exam notes'."}
                   </p>
                 )}
 
                 <div className="flex items-center gap-4 text-xs text-slate-500 pt-0.5 flex-wrap">
                   {moduleData.examTime && (
                     <span className="flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-slate-400" /> Uhrzeit: {moduleData.examTime}
+                      <Clock className="w-3.5 h-3.5 text-slate-400" /> {lang === "de" ? "Uhrzeit:" : "Time:"} {moduleData.examTime} {lang === "de" ? "Uhr" : ""}
                     </span>
                   )}
                   {moduleData.examLocation && (() => {
                     const mapInfo = getCampusMapInfo(moduleData.examLocation, preferredUniversity, customUniversity);
                     return (
                       <span className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-slate-400">Raum/Ort:</span>
+                        <span className="text-slate-400">{lang === "de" ? "Raum/Ort:" : "Room/Location:"}</span>
                         {mapInfo.url ? (
                           <a
                             href={mapInfo.url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:underline font-bold"
-                            title={`In ${mapInfo.providerName} öffnen`}
+                            title={lang === "de" ? `In ${mapInfo.providerName} öffnen` : `Open in ${mapInfo.providerName}`}
                           >
                             <MapPin className="w-3.5 h-3.5 text-rose-500" />
                             <span>{mapInfo.cleanLocation}</span>
@@ -1405,7 +1417,7 @@ function ModuleDetailContent() {
                     <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
                       <span className="flex items-center gap-1.5">
                         <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                        Zugeordnete Vorlesungen & Termine ({moduleData.events.length})
+                        {lang === "de" ? "Zugeordnete Vorlesungen & Termine" : "Scheduled Lectures & Events"} ({moduleData.events.length})
                       </span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
@@ -1435,7 +1447,7 @@ function ModuleDetailContent() {
                           >
                             <div className="flex items-center justify-between gap-1.5">
                               <span className={`text-[10px] px-1.5 py-0.5 rounded-md border ${badgeColor}`}>
-                                {icon} {evt.eventType === "EXAM" ? "Klausur" : evt.eventType === "TEST" ? "Test" : evt.eventType === "EXERCISE" ? "Übung" : "Vorlesung"}
+                                {icon} {evt.eventType === "EXAM" ? (lang === "de" ? "Klausur" : "Exam") : evt.eventType === "TEST" ? "Test" : evt.eventType === "EXERCISE" ? (lang === "de" ? "Übung" : "Exercise") : (lang === "de" ? "Vorlesung" : "Lecture")}
                               </span>
                               <span className="text-[11px] font-semibold text-slate-500">
                                 {evt.date && !isNaN(new Date(evt.date).getTime())
@@ -1450,7 +1462,7 @@ function ModuleDetailContent() {
                               {evt.title}
                             </div>
                             <div className="flex items-center justify-between gap-1 text-[11px] text-slate-500">
-                              {evt.startTime && <span>{evt.startTime} Uhr</span>}
+                              {evt.startTime && <span>{evt.startTime} {lang === "de" ? "Uhr" : ""}</span>}
                               {evt.location && evtMap && (
                                 evtMap.url ? (
                                   <a
@@ -1458,7 +1470,7 @@ function ModuleDetailContent() {
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-0.5 truncate max-w-[120px]"
-                                    title={`In ${evtMap.providerName} öffnen`}
+                                    title={lang === "de" ? `In ${evtMap.providerName} öffnen` : `Open in ${evtMap.providerName}`}
                                   >
                                     <MapPin className="w-2.5 h-2.5 text-rose-500 flex-shrink-0" />
                                     <span className="truncate">{evtMap.cleanLocation}</span>
@@ -1487,7 +1499,7 @@ function ModuleDetailContent() {
                 }}
                 className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center gap-1.5 transition-colors self-start"
               >
-                <Edit2 className="w-3.5 h-3.5 text-indigo-500" /> Klausuraufbau bearbeiten
+                <Edit2 className="w-3.5 h-3.5 text-indigo-500" /> {t.editExamNotesBtn}
               </button>
             </div>
           </div>
@@ -2122,7 +2134,7 @@ function ModuleDetailContent() {
                               ) : (
                                 <span
                                   className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium cursor-pointer"
-                                  title="Enthält unleserliche Steuerzeichen oder Scan"
+                                  title={lang === "de" ? "Enthält unleserliche Steuerzeichen oder Scan" : "Contains unreadable characters or scan"}
                                 >
                                   <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
                                   {lang === "de" ? "⚠️ Text prüfen / Scan" : "⚠️ Incomplete text"}
@@ -2197,7 +2209,7 @@ function ModuleDetailContent() {
                             </button>
                           </div>
                           <p className="text-[11px] text-slate-400">
-                            {previewDoc.fileName || "Dokument"} • {previewDoc.category === "EXAM_PAST" ? "Altklausur" : "Vorlesungsunterlage"}
+                            {previewDoc.fileName || (lang === "de" ? "Dokument" : "Document")} • {previewDoc.category === "EXAM_PAST" ? (lang === "de" ? "Altklausur" : "Past Exam") : (lang === "de" ? "Vorlesungsunterlage" : "Lecture Material")}
                           </p>
                         </div>
                       </div>
@@ -2230,7 +2242,7 @@ function ModuleDetailContent() {
                     <div className="flex items-center justify-between gap-2 mb-3 flex-wrap text-xs">
                       <div className="flex items-center gap-2 text-slate-500 text-[11px]">
                         <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          {previewDoc.parsedText ? `${previewDoc.parsedText.length.toLocaleString()} Zeichen` : "0 Zeichen"}
+                          {previewDoc.parsedText ? `${previewDoc.parsedText.length.toLocaleString()} ${lang === "de" ? "Zeichen" : "chars"}` : `0 ${lang === "de" ? "Zeichen" : "chars"}`}
                         </span>
                         <span>•</span>
                         {isValidPdfText(previewDoc.parsedText) ? (
@@ -2305,7 +2317,7 @@ function ModuleDetailContent() {
                           <span className="font-semibold text-slate-700 dark:text-slate-300">
                             {lang === "de" ? "Vorlesungstext / Notizen bearbeiten:" : "Edit lecture text / notes:"}
                           </span>
-                          <span>{editDocContentText.length.toLocaleString()} Zeichen</span>
+                          <span>{editDocContentText.length.toLocaleString()} {lang === "de" ? "Zeichen" : "chars"}</span>
                         </div>
                         <textarea
                           value={editDocContentText}
@@ -2350,9 +2362,9 @@ function ModuleDetailContent() {
                                 ? previewDoc.parsedText
                                     .split("\n")
                                     .filter((line: string) => line.toLowerCase().includes(docSearchTerm.toLowerCase()))
-                                    .join("\n") || `Keine Treffer für "${docSearchTerm}" gefunden.`
+                                    .join("\n") || (lang === "de" ? `Keine Treffer für "${docSearchTerm}" gefunden.` : `No matches found for "${docSearchTerm}".`)
                                 : previewDoc.parsedText)
-                            : "Kein extrahierter Text vorhanden."}
+                            : (lang === "de" ? "Kein extrahierter Text vorhanden." : "No extracted text available.")}
                         </pre>
                       </div>
                     )}
@@ -2471,11 +2483,11 @@ function ModuleDetailContent() {
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-ping" />
                     <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                      Prüfungsreife (Klausur-Readiness-Score)
+                      {t.examReadiness}
                     </h3>
                   </div>
                   <span className="text-xs font-semibold text-slate-500">
-                    Schwellenwert: 80% = Sicherer Klausurerfolg
+                    {lang === "de" ? "Schwellenwert: 80% = Sicherer Klausurerfolg" : "Target: 80% = Benchmark for passing"}
                   </span>
                 </div>
 
@@ -2485,11 +2497,17 @@ function ModuleDetailContent() {
                   <div className="flex items-center gap-2 text-indigo-900 dark:text-indigo-200">
                     <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
                     <span>
-                      {readiness >= 80
-                        ? "Top Vorbereitung! Dein Spaced-Repetition-Score liegt im Zielbereich."
+                      {lang === "de"
+                        ? readiness >= 80
+                          ? "Top Vorbereitung! Dein Spaced-Repetition-Score liegt im Zielbereich."
+                          : readiness >= 50
+                          ? "Gute Basis! Schließe noch die Wissenslücken in den 3 schwächsten Themen."
+                          : "Klausurreife noch gering. Tägliches Fragenziel einhalten!"
+                        : readiness >= 80
+                        ? "Great preparation! Your spaced repetition score is on track."
                         : readiness >= 50
-                        ? "Gute Basis! Schließe noch die Wissenslücken in den 3 schwächsten Themen."
-                        : "Klausurreife noch gering. Tägliches Fragenziel einhalten!"}
+                        ? "Good foundation! Close the knowledge gaps in your 3 weakest topics."
+                        : "Readiness still low. Stick to your daily question goal!"}
                     </span>
                   </div>
                 </div>
@@ -2499,10 +2517,12 @@ function ModuleDetailContent() {
               <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
-                    <Clock className="w-4 h-4 text-indigo-500" /> Countdown-Lernplan
+                    <Clock className="w-4 h-4 text-indigo-500" /> {lang === "de" ? "Countdown-Lernplan" : "Countdown Study Plan"}
                   </h3>
                   <p className="text-[11px] text-slate-500 leading-tight mb-4">
-                    Formel: (Verbleibende Wissensfragen) / (Tage bis Prüfung) = Tägliches Fragenziel
+                    {lang === "de"
+                      ? "Formel: (Verbleibende Wissensfragen) / (Tage bis Prüfung) = Tägliches Fragenziel"
+                      : "Formula: (Remaining questions) / (Days until exam) = Daily target"}
                   </p>
                 </div>
 
@@ -2512,17 +2532,19 @@ function ModuleDetailContent() {
                     max={dailyGoal}
                     size={80}
                     strokeWidth={8}
-                    label={`Heute: ${answeredToday}/${dailyGoal} Fragen`}
+                    label={lang === "de" ? `Heute: ${answeredToday}/${dailyGoal} Fragen` : `Today: ${answeredToday}/${dailyGoal} Qs`}
                     sublabel={
                       answeredToday >= dailyGoal
-                        ? "Tagesziel komplett! 🎉"
-                        : `Noch ${Math.max(0, dailyGoal - answeredToday)} Fragen`
+                        ? (lang === "de" ? "Tagesziel komplett! 🎉" : "Daily goal completed! 🎉")
+                        : (lang === "de" ? `Noch ${Math.max(0, dailyGoal - answeredToday)} Fragen` : `${Math.max(0, dailyGoal - answeredToday)} questions left`)
                     }
                   />
                 </div>
 
                 <div className="text-center pt-2 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500">
-                  {daysLeft ? `Noch ${daysLeft} Tage bis zur Prüfung` : "Kein Termin definiert"}
+                  {daysLeft
+                    ? (lang === "de" ? `Noch ${daysLeft} Tage bis zur Prüfung` : `${daysLeft} days until exam`)
+                    : (lang === "de" ? "Kein Termin definiert" : "No exam date defined")}
                 </div>
               </div>
             </div>
@@ -2535,15 +2557,18 @@ function ModuleDetailContent() {
                     Spaced Repetition
                   </span>
                   <span className="text-xs text-indigo-200">
-                    Wiedervorlage nach Vergessenskurve
+                    {lang === "de" ? "Wiedervorlage nach Vergessenskurve" : "Spaced review interval"}
                   </span>
                 </div>
                 <h3 className="text-lg font-bold">
-                  {moduleData.dueQuestionsCount ?? 0} Fragen heute zur Wiederholung fällig
+                  {lang === "de"
+                    ? `${moduleData.dueQuestionsCount ?? 0} Fragen heute zur Wiederholung fällig`
+                    : `${moduleData.dueQuestionsCount ?? 0} questions due for review today`}
                 </h3>
                 <p className="text-xs text-indigo-200 max-w-xl">
-                  Richtig beantwortete Fragen verlängern ihr Intervall (1d → 3d → 7d → 14d). Fehler
-                  landen direkt morgen wieder auf dem Tisch.
+                  {lang === "de"
+                    ? "Richtig beantwortete Fragen verlängern ihr Intervall (1d → 3d → 7d → 14d). Fehler landen direkt morgen wieder auf dem Tisch."
+                    : "Correct answers increase the interval (1d → 3d → 7d → 14d). Mistakes return for review tomorrow."}
                 </p>
               </div>
 
@@ -2553,7 +2578,7 @@ function ModuleDetailContent() {
                 className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold bg-white hover:bg-slate-100 text-indigo-900 shadow-lg hover:shadow-xl transition-all flex-shrink-0"
               >
                 <RotateCcw className="w-4 h-4 text-indigo-600" />
-                Heute fällige Fragen wiederholen
+                {lang === "de" ? "Heute fällige Fragen wiederholen" : "Review Due Questions Today"}
               </button>
             </div>
 
@@ -2563,7 +2588,7 @@ function ModuleDetailContent() {
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <TrendingDown className="w-5 h-5 text-rose-500" />
-                    Hier solltest du dich vertiefen (Schwachstellen-Radar)
+                    {t.weaknessRadarTitle}
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {moduleData.weakestTopics && moduleData.weakestTopics.length > 0
@@ -2598,7 +2623,7 @@ function ModuleDetailContent() {
                                   : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
                               }`}
                             >
-                              {mastery}% Reife
+                              {mastery}% {lang === "de" ? "Reife" : "Readiness"}
                             </span>
                           </div>
 
@@ -2672,10 +2697,10 @@ function ModuleDetailContent() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    Training Starten (Modus wählen)
+                    {t.startTrainingTitle}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Wähle einen spezifischen Fragentyp oder starte eine realistische Klausursimulation.
+                    {t.startTrainingSubtitle}
                   </p>
                 </div>
 
@@ -2791,7 +2816,7 @@ function ModuleDetailContent() {
                     Single Choice
                   </h4>
                   <p className="text-[11px] text-slate-500 leading-tight">
-                    1 richtige Antwort, sofortiges Feedback &amp; Begründung.
+                    {t.singleChoiceSubtitle}
                   </p>
                 </button>
 
@@ -2808,7 +2833,7 @@ function ModuleDetailContent() {
                     Multiple Choice
                   </h4>
                   <p className="text-[11px] text-slate-500 leading-tight">
-                    1 bis mehrere Optionen mit gerechter Teilpunktevergabe.
+                    {t.multipleChoiceSubtitle}
                   </p>
                 </button>
 
@@ -2822,10 +2847,12 @@ function ModuleDetailContent() {
                     <ArrowLeftRight className="w-5 h-5" />
                   </div>
                   <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white mb-1">
-                    Zuordnung &amp; Schema
+                    {lang === "de" ? "Zuordnung & Schema" : "Matching & Diagrams"}
                   </h4>
                   <p className="text-[11px] text-slate-500 leading-tight">
-                    Begriffe &amp; Diagramme per Drag &amp; Drop den richtigen Stellen zuweisen.
+                    {lang === "de"
+                      ? "Begriffe & Diagramme per Drag & Drop den richtigen Stellen zuweisen."
+                      : "Match terms and diagrams to their target slots via drag & drop."}
                   </p>
                 </button>
 
@@ -2839,10 +2866,10 @@ function ModuleDetailContent() {
                     <Sparkles className="w-5 h-5" />
                   </div>
                   <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white mb-1">
-                    Freitext mit KI-Korrektur
+                    {t.freeTextTitle}
                   </h4>
                   <p className="text-[11px] text-slate-500 leading-tight">
-                    Definitionen formulieren &amp; semantisches Folien-Feedback erhalten.
+                    {t.freeTextSubtitle}
                   </p>
                 </button>
 
@@ -2855,9 +2882,9 @@ function ModuleDetailContent() {
                   <div className="w-9 h-9 rounded-xl bg-white/20 text-white flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                     <GraduationCap className="w-5 h-5" />
                   </div>
-                  <h4 className="text-xs sm:text-sm font-bold mb-1">Klausursimulation</h4>
+                  <h4 className="text-xs sm:text-sm font-bold mb-1">{t.simulationTitleBtn}</h4>
                   <p className="text-[11px] text-indigo-100 leading-tight">
-                    Realistischer Mix aus SC, MC &amp; Freitext mit Prüfungsbewertung.
+                    {t.simulationSubtitleBtn}
                   </p>
                 </button>
               </div>
@@ -2907,7 +2934,7 @@ function ModuleDetailContent() {
                           : "text-slate-500 hover:text-slate-800"
                       }`}
                     >
-                      Alle
+                      {lang === "de" ? "Alle" : "All"}
                     </button>
                     <button
                       type="button"
@@ -2940,7 +2967,7 @@ function ModuleDetailContent() {
                           : "text-slate-500 hover:text-slate-800"
                       }`}
                     >
-                      Zuordnung
+                      {lang === "de" ? "Zuordnung" : "Matching"}
                     </button>
                     <button
                       type="button"
@@ -2951,7 +2978,7 @@ function ModuleDetailContent() {
                           : "text-slate-500 hover:text-slate-800"
                       }`}
                     >
-                      Freitext
+                      {lang === "de" ? "Freitext" : "Free Text"}
                     </button>
                   </div>
                 </div>
@@ -3073,8 +3100,8 @@ function ModuleDetailContent() {
                                 : q.type === "MULTIPLE_CHOICE"
                                 ? "Multiple Choice"
                                 : q.type === "MATCHING"
-                                ? "Zuordnung / Schema"
-                                : "Freitext"}
+                                ? (lang === "de" ? "Zuordnung / Schema" : "Matching / Diagram")
+                                : (lang === "de" ? "Freitext" : "Free Text")}
                             </span>
                             {q.sourceRef && (
                               <span className="text-[11px] text-slate-500 font-medium">
@@ -3099,7 +3126,7 @@ function ModuleDetailContent() {
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 border border-slate-200 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                              {isDeletingQuestionId === q.id ? "Löscht..." : (lang === "de" ? "Löschen" : "Delete")}
+                              {isDeletingQuestionId === q.id ? (lang === "de" ? "Löscht..." : "Deleting...") : (lang === "de" ? "Löschen" : "Delete")}
                             </button>
                           </div>
                         </div>
@@ -3144,7 +3171,7 @@ function ModuleDetailContent() {
                                 </span>
                                 <span className="text-slate-400 flex-shrink-0">➔</span>
                                 <span className="truncate flex-1 text-right text-slate-700 dark:text-slate-300 font-medium">
-                                  {opt.target || opt.explanation || "Zielfeld"}
+                                  {opt.target || opt.explanation || (lang === "de" ? "Zielfeld" : "Target Slot")}
                                 </span>
                               </div>
                             ))}
@@ -3155,7 +3182,7 @@ function ModuleDetailContent() {
                         {q.type === "FREE_TEXT" && q.sampleSolution && (
                           <div className="p-2.5 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 text-xs text-purple-950 dark:text-purple-200">
                             <span className="font-bold block text-[10px] uppercase tracking-wider text-purple-700 dark:text-purple-300 mb-0.5">
-                              Musterlösung:
+                              {lang === "de" ? "Musterlösung:" : "Sample Solution:"}
                             </span>
                             <p className="line-clamp-2 text-slate-700 dark:text-slate-300">
                               {q.sampleSolution}
