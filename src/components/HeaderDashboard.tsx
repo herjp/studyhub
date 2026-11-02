@@ -128,6 +128,18 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     persistAiSettings(aiProvider, updated);
   };
 
+  const handleUniversityChange = (uniId: string) => {
+    setPreferredUniversity(uniId);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("studyhub_preferred_university", uniId);
+      if (uniId !== "other") {
+        localStorage.removeItem("studyhub_custom_university");
+      }
+      window.dispatchEvent(new CustomEvent("studyhub_university_updated", { detail: { university: uniId } }));
+      window.dispatchEvent(new Event("storage"));
+    }
+  };
+
   const getDisplayModel = (provider: string) => {
     if (typeof window === "undefined") return "";
     const stored =
@@ -936,7 +948,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                     <button
                       key={uni.id}
                       type="button"
-                      onClick={() => setPreferredUniversity(uni.id)}
+                      onClick={() => handleUniversityChange(uni.id)}
                       className={`p-2.5 rounded-xl border text-left transition-all ${
                         preferredUniversity === uni.id
                           ? "bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300 font-bold shadow-xs"
