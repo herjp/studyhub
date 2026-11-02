@@ -103,6 +103,7 @@ export default function HomePage() {
       if (res.ok) {
         await fetchCurrentUser();
         await fetchSemesters();
+        window.dispatchEvent(new Event("studyhub_user_updated"));
       }
     } catch (e) {
       console.error(e);
@@ -348,6 +349,7 @@ export default function HomePage() {
           onSuccess={(user) => {
             setCurrentUser(user);
             fetchSemesters();
+            window.dispatchEvent(new Event("studyhub_user_updated"));
           }}
         />
       )}

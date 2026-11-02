@@ -1,3 +1,5 @@
+import { getSemesterInfoForDate, matchesSemesterName, SemesterInfo } from "./semester-utils";
+
 export type IcsEventType = "EXAM" | "TEST" | "LECTURE" | "EXERCISE" | "HOLIDAY" | "OTHER";
 
 export interface ParsedIcsEvent {
@@ -22,6 +24,9 @@ export interface ParsedIcsEvent {
 export interface CourseGroup {
   cleanModuleName: string;
   courseCode?: string;
+  semesterName: string;
+  semesterType: "WINTER" | "SUMMER";
+  semesterYear: number;
   allEvents: ParsedIcsEvent[];
   examCount: number;
   testCount: number;
@@ -227,8 +232,16 @@ function processRawEvent(
   // Match with existing modules
   let matchedModuleId: string | null = null;
   let matchedModuleName: string | null = null;
+  const eventSemInfo = startDate ? getSemesterInfoForDate(startDate) : null;
 
   for (const m of modules) {
+    if (eventSemInfo) {
+      const modSemName = (m as any).semester?.name || (m as any).semesterName || "";
+      if (modSemName && !matchesSemesterName(modSemName, eventSemInfo)) {
+        continue;
+      }
+    }
+
     const mName = m.name.toLowerCase().trim();
     const mCode = m.code ? m.code.toLowerCase().trim() : "";
     const cleanLower = cleanName.toLowerCase();
@@ -267,25 +280,45 @@ function processRawEvent(
 }
 
 /**
- * Groups events by their underlying Course / Module.
- * Ensures exactly ONE module is proposed per course, with all sub-events linked to it.
+ * Groups events by their underlying Course / Module and Academic Semester.
+ * Ensures courses in different semesters (e.g. Winter vs Summer) are strictly separated,
+ * and exactly ONE module is proposed per course per semester.
  */
 export function groupIcsEventsByCourse(
   events: ParsedIcsEvent[],
-  existingModules: Array<{ id: string; name: string; code?: string | null }> = []
+  existingModules: Array<{
+    id: string;
+    name: string;
+    code?: string | null;
+    semesterId?: string;
+    semester?: { id: string; name: string };
+  }> = []
 ): CourseGroup[] {
-  const map: Record<string, ParsedIcsEvent[]> = {};
+  const map: Record<
+    string,
+    { modName: string; semInfo: SemesterInfo; events: ParsedIcsEvent[] }
+  > = {};
 
   for (const ev of events) {
     if (ev.eventType === "HOLIDAY") continue;
-    const key = ev.cleanModuleName;
-    if (!map[key]) map[key] = [];
-    map[key].push(ev);
+    const evDate = ev.startDate || (ev.dateStr ? new Date(ev.dateStr) : new Date());
+    const semInfo = getSemesterInfoForDate(evDate);
+    const key = `${ev.cleanModuleName}___${semInfo.name}`;
+
+    if (!map[key]) {
+      map[key] = {
+        modName: ev.cleanModuleName,
+        semInfo,
+        events: [],
+      };
+    }
+    map[key].events.push(ev);
   }
 
   const groups: CourseGroup[] = [];
 
-  for (const [modName, evList] of Object.entries(map)) {
+  for (const item of Object.values(map)) {
+    const { modName, semInfo, events: evList } = item;
     const courseCode = evList.find((e) => e.courseCode)?.courseCode;
     const examEvents = evList.filter((e) => e.eventType === "EXAM");
     const testEvents = evList.filter((e) => e.eventType === "TEST");
@@ -295,13 +328,19 @@ export function groupIcsEventsByCourse(
     // Determine primary exam / test date (exams take priority over tests)
     const primaryExamEvent = examEvents[0] || testEvents[0] || undefined;
 
-    // Check if module already exists
+    // Check if module already exists IN THIS SPECIFIC SEMESTER
     let matchedModuleId: string | null = null;
     let matchedModuleName: string | null = null;
 
     const lowerModName = modName.toLowerCase();
 
     for (const m of existingModules) {
+      // Semester check: If module has semester info, verify it matches
+      const modSemName = (m as any).semester?.name || (m as any).semesterName || "";
+      if (modSemName && !matchesSemesterName(modSemName, semInfo)) {
+        continue;
+      }
+
       const mName = m.name.toLowerCase().trim();
       const mCode = m.code ? m.code.toLowerCase().trim() : "";
 
@@ -320,6 +359,9 @@ export function groupIcsEventsByCourse(
     groups.push({
       cleanModuleName: modName,
       courseCode,
+      semesterName: semInfo.name,
+      semesterType: semInfo.type,
+      semesterYear: semInfo.year,
       allEvents: evList,
       examCount: examEvents.length,
       testCount: testEvents.length,

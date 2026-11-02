@@ -425,6 +425,17 @@ export function IcsImportModal({
                                     {group.courseCode}
                                   </span>
                                 )}
+                                {group.semesterName && (
+                                  <span
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                                      group.semesterType === "SUMMER"
+                                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                                        : "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 dark:border-sky-800"
+                                    }`}
+                                  >
+                                    {group.semesterType === "SUMMER" ? "🌿" : "❄️"} {group.semesterName}
+                                  </span>
+                                )}
                               </div>
 
                               {/* Badges for Event Types */}
@@ -498,14 +509,25 @@ export function IcsImportModal({
                                 </option>
                               )}
                               <option value="create_new">
-                                ➕ {lang === "de" ? "Als neues Modul erstellen (5 ECTS)" : "Create as new module (5 ECTS)"}
+                                ➕ {lang === "de"
+                                  ? `Als neues Modul erstellen (${group.semesterName || "5 ECTS"})`
+                                  : `Create as new module (${group.semesterName || "5 ECTS"})`}
                               </option>
                               <optgroup label={lang === "de" ? "Bestehende Module:" : "Existing Modules:"}>
-                                {modules.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.code ? `[${m.code}] ` : ""}{m.name}
-                                  </option>
-                                ))}
+                                {modules
+                                  .filter((m: any) => {
+                                    if (!group.semesterName || !m.semester?.name) return true;
+                                    const mSem = m.semester.name.toLowerCase();
+                                    return (
+                                      (group.semesterType === "SUMMER" && (mSem.includes("sommer") || mSem.includes("sose") || mSem.includes("ss"))) ||
+                                      (group.semesterType === "WINTER" && (mSem.includes("winter") || mSem.includes("wise") || mSem.includes("ws")))
+                                    );
+                                  })
+                                  .map((m: any) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.semester?.name ? `[${m.semester.name}] ` : ""}{m.code ? `[${m.code}] ` : ""}{m.name}
+                                    </option>
+                                  ))}
                               </optgroup>
                               <option value="ignore">
                                 🚫 {lang === "de" ? "Dieses Fach ignorieren" : "Ignore this course"}

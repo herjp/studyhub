@@ -130,12 +130,30 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     }
   };
 
+  const checkFirstLoginTour = (user: any) => {
+    if (!user) return;
+    try {
+      const userTourKey = `studyhub_tour_seen_${user.id}`;
+      const generalSeen =
+        localStorage.getItem("studyhub_tour_completed") ||
+        localStorage.getItem(userTourKey);
+      if (!generalSeen) {
+        setShowOnboarding(true);
+      }
+    } catch (e) {
+      console.warn("Storage restricted", e);
+    }
+  };
+
   const fetchCurrentUser = async () => {
     try {
       const res = await fetch("/api/auth/me");
       if (res.ok) {
         const data = await res.json();
         setCurrentUser(data.user);
+        if (data.user) {
+          checkFirstLoginTour(data.user);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -168,6 +186,13 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
   useEffect(() => {
     fetchCurrentUser();
     fetchStats();
+
+    const handleUserUpdate = () => {
+      fetchCurrentUser();
+      fetchStats();
+    };
+    window.addEventListener("studyhub_user_updated", handleUserUpdate);
+
     // Load local settings
     const storedTarget = localStorage.getItem("studyhub_target_ects");
     if (storedTarget) setTargetEcts(Number(storedTarget));
@@ -195,13 +220,9 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     const isDark = document.documentElement.classList.contains("dark");
     setDarkMode(isDark);
 
-    // Check if new interactive onboarding tour v2 has been completed
-    try {
-      const tourSeen = localStorage.getItem("studyhub_tour_v2");
-      if (!tourSeen) {
-        setShowOnboarding(true);
-      }
-    } catch {}
+    return () => {
+      window.removeEventListener("studyhub_user_updated", handleUserUpdate);
+    };
   }, []);
 
   const handleSaveSettings = () => {
@@ -364,14 +385,14 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
               <Settings className="w-4 h-4" />
             </button>
 
-            {/* Help / Onboarding Tour Button */}
+            {/* Help / Onboarding Tour Question Mark Button */}
             <button
               onClick={() => setShowOnboarding(true)}
-              title={lang === "de" ? "Interaktive App-Tour & Guide starten" : "Start Interactive Tour & Guide"}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 transition-colors shadow-2xs"
+              title={lang === "de" ? "Hilfe & Interaktive Tour" : "Help & Interactive Tour"}
+              aria-label={lang === "de" ? "Hilfe & Interaktive Tour" : "Help & Interactive Tour"}
+              className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 transition-colors cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span className="hidden sm:inline">{lang === "de" ? "Tour" : "Tour"}</span>
+              <HelpCircle className="w-4 h-4" />
             </button>
 
             {/* User Account / Profile / Login - GANZ RECHTS */}
@@ -806,6 +827,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
           setCurrentUser(user);
           fetchStats();
           if (onStatsUpdated) onStatsUpdated();
+          checkFirstLoginTour(user);
         }}
       />
 

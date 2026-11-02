@@ -183,34 +183,57 @@ export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
 
   const current = steps[currentStep];
 
-  // Update target rect when step changes or window resizes
-  const updateTargetRect = useCallback(() => {
+  // Recalculates ONLY the bounding rect (never calls scrollIntoView!)
+  const updateTargetRectOnly = useCallback(() => {
     if (!current.targetSelector) {
       setTargetRect(null);
       return;
     }
     const el = document.querySelector(current.targetSelector);
     if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      const rect = el.getBoundingClientRect();
-      setTargetRect(rect);
+      setTargetRect(el.getBoundingClientRect());
     } else {
       setTargetRect(null);
     }
   }, [current.targetSelector]);
 
+  // When step changes or tour opens, smooth-scroll to element ONCE
   useEffect(() => {
-    if (isOpen) {
-      updateTargetRect();
-      const handleResize = () => updateTargetRect();
-      window.addEventListener("resize", handleResize);
-      window.addEventListener("scroll", handleResize, { passive: true });
-      return () => {
-        window.removeEventListener("resize", handleResize);
-        window.removeEventListener("scroll", handleResize);
-      };
+    if (!isOpen) return;
+    if (!current.targetSelector) {
+      setTargetRect(null);
+      return;
     }
-  }, [isOpen, currentStep, updateTargetRect]);
+
+    const timer = setTimeout(() => {
+      const el = document.querySelector(current.targetSelector!);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setTargetRect(el.getBoundingClientRect());
+      }
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [isOpen, currentStep, current.targetSelector]);
+
+  // Listen to resize and scroll to keep rect accurate, with NO scrollIntoView call
+  useEffect(() => {
+    if (!isOpen) return;
+
+    window.addEventListener("resize", updateTargetRectOnly);
+    window.addEventListener("scroll", updateTargetRectOnly, { passive: true });
+
+    // Smoothly track position during initial scroll transition
+    const interval = setInterval(updateTargetRectOnly, 50);
+    const stopTimer = setTimeout(() => clearInterval(interval), 600);
+
+    return () => {
+      window.removeEventListener("resize", updateTargetRectOnly);
+      window.removeEventListener("scroll", updateTargetRectOnly);
+      clearInterval(interval);
+      clearTimeout(stopTimer);
+    };
+  }, [isOpen, currentStep, updateTargetRectOnly]);
 
   // Keyboard navigation: Arrow Left/Right, Escape
   useEffect(() => {
@@ -246,6 +269,7 @@ export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
   const handleFinish = () => {
     try {
       if (typeof window !== "undefined") {
+        localStorage.setItem("studyhub_tour_completed", "true");
         localStorage.setItem("studyhub_tour_v2", "true");
         localStorage.setItem("studyhub_onboarding_seen", "true");
       }
@@ -295,21 +319,59 @@ export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
 
   return (
     <Portal>
-      {/* 1. Backdrop */}
-      <div className="fixed inset-0 z-[105] bg-black/60 backdrop-blur-sm transition-opacity duration-300 pointer-events-auto">
-        {/* Spotlight cutout border around targeted element */}
-        {hasTarget && targetRect && (
+      {/* 1. Backdrop Overlay: SVG Mask creates transparent cutout for target element (NO blur, NO flicker!) */}
+      {hasTarget && targetRect ? (
+        <>
+          <svg
+            className="fixed inset-0 w-full h-full pointer-events-none z-[105]"
+            style={{ width: "100vw", height: "100vh" }}
+          >
+            <defs>
+              <mask id="tour-spotlight-mask">
+                {/* White fills whole screen -> darkened */}
+                <rect x="0" y="0" width="100%" height="100%" fill="white" />
+                {/* Black cutout -> completely transparent, sharp, crystal-clear! */}
+                <rect
+                  x={targetRect.left - 6}
+                  y={targetRect.top - 6}
+                  width={targetRect.width + 12}
+                  height={targetRect.height + 12}
+                  rx="16"
+                  ry="16"
+                  fill="black"
+                />
+              </mask>
+            </defs>
+            <rect
+              x="0"
+              y="0"
+              width="100%"
+              height="100%"
+              fill="rgba(15, 23, 42, 0.72)"
+              mask="url(#tour-spotlight-mask)"
+              className="pointer-events-auto cursor-pointer"
+              onClick={handleNext}
+            />
+          </svg>
+
+          {/* Highlighting border around the target */}
           <div
             style={{
+              position: "fixed",
               top: `${targetRect.top - 6}px`,
               left: `${targetRect.left - 6}px`,
               width: `${targetRect.width + 12}px`,
               height: `${targetRect.height + 12}px`,
             }}
-            className="fixed pointer-events-none rounded-2xl ring-4 ring-indigo-500 ring-offset-4 ring-offset-black/50 shadow-[0_0_0_9999px_rgba(0,0,0,0.65)] animate-pulse transition-all duration-300 z-[110]"
+            className="pointer-events-none rounded-2xl ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-900 shadow-[0_0_25px_rgba(99,102,241,0.6)] z-[110]"
           />
-        )}
-      </div>
+        </>
+      ) : (
+        <div
+          className="fixed inset-0 z-[105] bg-slate-950/75 pointer-events-auto"
+          onClick={handleNext}
+        />
+      )}
 
       {/* 2. Interactive Tour Card */}
       <div
@@ -374,7 +436,7 @@ export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
 
           {/* Interactive Arrow Pointer indicating direction to real element */}
           {hasTarget && targetRect && (
-            <div className="pt-2 flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 animate-bounce">
+            <div className="pt-2 flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400">
               {window.innerHeight - targetRect.bottom < 320 && targetRect.top > 320 ? (
                 <>
                   <ArrowDown className="w-4 h-4" />

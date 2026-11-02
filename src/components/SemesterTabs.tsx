@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { Portal } from "./Portal";
+import { getSemesterInfoForDate } from "@/lib/semester-utils";
 
 export interface SemesterType {
   id: string;
@@ -71,10 +72,13 @@ export function SemesterTabs({
       ];
 
   const handleOpenAdd = () => {
+    const semInfo = getSemesterInfoForDate(new Date());
     setName(
       lang === "de"
-        ? `Wintersemester ${currentYear}/${(currentYear + 1).toString().slice(2)}`
-        : `Winter Semester ${currentYear}/${(currentYear + 1).toString().slice(2)}`
+        ? semInfo.name
+        : semInfo.type === "SUMMER"
+        ? `Summer Semester ${semInfo.year}`
+        : `Winter Semester ${semInfo.year}/${(semInfo.year + 1).toString().slice(-2)}`
     );
     setIsNewActive(false);
     setShowAddModal(true);
