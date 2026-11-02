@@ -73,16 +73,23 @@ export function IcsImportModal({
   const [customUniversity, setCustomUniversity] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const savedUni = localStorage.getItem("studyhub_preferred_university");
-        if (savedUni) setPreferredUniversity(savedUni);
-        const savedCustom = localStorage.getItem("studyhub_custom_university");
-        if (savedCustom) setCustomUniversity(savedCustom);
-      } catch (e) {
-        console.warn("Storage restricted:", e);
+    const loadUni = () => {
+      if (typeof window !== "undefined") {
+        try {
+          const savedUni = localStorage.getItem("studyhub_preferred_university");
+          if (savedUni) setPreferredUniversity(savedUni);
+          const savedCustom = localStorage.getItem("studyhub_custom_university");
+          setCustomUniversity(savedCustom || "");
+        } catch (e) {
+          console.warn("Storage restricted:", e);
+        }
       }
-    }
+    };
+    loadUni();
+    window.addEventListener("studyhub_university_updated", loadUni);
+    return () => {
+      window.removeEventListener("studyhub_university_updated", loadUni);
+    };
   }, []);
 
   if (!isOpen) return null;

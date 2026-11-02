@@ -73,7 +73,7 @@ export function sanitizeRoomLocation(rawLocation?: string | null): { cleanRoom: 
 
 export function getCampusMapInfo(
   rawLocation?: string | null,
-  preferredUniversity: string = "tu_wien",
+  preferredUniversity?: string,
   customUniversityName?: string
 ): CampusMapInfo {
   if (!rawLocation || typeof rawLocation !== "string" || !rawLocation.trim()) {
@@ -136,10 +136,75 @@ export function getCampusMapInfo(
     };
   }
 
-  // 2. Physical Campus Maps by User's Selected Provider
+  // 2. Resolve Active University preference
+  let activeUni = preferredUniversity;
+  let activeCustom = customUniversityName;
 
-  // If user explicitly selected Google Maps
-  if (preferredUniversity === "google_maps") {
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("studyhub_preferred_university");
+      if (stored) {
+        activeUni = stored;
+      }
+      const storedCustom = localStorage.getItem("studyhub_custom_university");
+      if (storedCustom) {
+        activeCustom = storedCustom;
+      }
+    } catch {
+      // fallback
+    }
+  }
+  if (!activeUni) activeUni = "tu_wien";
+
+  // CASE 1: TU Wien (ALWAYS use TU Wien Maps maps.tuwien.ac.at)
+  if (activeUni === "tu_wien") {
+    let tuwSearchTerm = cleanRoom;
+    if (/vortmann/i.test(cleanRoom)) {
+      tuwSearchTerm = "Vortmann";
+    } else if (/\bgm\s*3\b/i.test(cleanRoom)) {
+      tuwSearchTerm = "Vortmann";
+    } else if (/radinger/i.test(cleanRoom) || /\bgm\s*2\b/i.test(cleanRoom)) {
+      tuwSearchTerm = "Radinger";
+    } else if (/knoller/i.test(cleanRoom) || /\bgm\s*4\b/i.test(cleanRoom)) {
+      tuwSearchTerm = "Knoller";
+    } else if (/parkus/i.test(cleanRoom) || /\bgm\s*1\b/i.test(cleanRoom)) {
+      tuwSearchTerm = "Parkus";
+    } else if (/prechtl/i.test(cleanRoom)) {
+      tuwSearchTerm = "Prechtlsaal";
+    } else if (/kuppelsaal/i.test(cleanRoom)) {
+      tuwSearchTerm = "Kuppelsaal";
+    } else if (/informatikhörsaal|inf\s*hs/i.test(cleanRoom)) {
+      tuwSearchTerm = "Informatikhörsaal";
+    } else if (/audimax|audi\.max/i.test(cleanRoom)) {
+      tuwSearchTerm = "Audimax";
+    } else if (/boeckl|böckl/i.test(cleanRoom)) {
+      tuwSearchTerm = "Böcklsaal";
+    } else if (/fritz\s*paschke/i.test(cleanRoom)) {
+      tuwSearchTerm = "Fritz Paschke";
+    } else if (/hochenegg/i.test(cleanRoom) || /\bei\s*2\b/i.test(cleanRoom)) {
+      tuwSearchTerm = "Hochenegg";
+    } else if (/petzold/i.test(cleanRoom) || /\bei\s*1\b/i.test(cleanRoom)) {
+      tuwSearchTerm = "Petzold";
+    } else if (/sahulka/i.test(cleanRoom) || /\bei\s*3\b/i.test(cleanRoom)) {
+      tuwSearchTerm = "Sahulka";
+    }
+
+    const tuwUrl = `https://maps.tuwien.ac.at/?q=${encodeURIComponent(tuwSearchTerm)}`;
+
+    return {
+      isOnline: false,
+      isTuWien: true,
+      cleanLocation: cleanRoom,
+      rawLocation: raw,
+      url: tuwUrl,
+      secondaryUrl: null,
+      providerName: "TU Wien Maps",
+      badgeLabel: "TUW Maps",
+    };
+  }
+
+  // CASE 2: Google Maps explicitly selected
+  if (activeUni === "google_maps") {
     const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanRoom)}`;
     return {
       isOnline: false,
@@ -153,11 +218,25 @@ export function getCampusMapInfo(
     };
   }
 
-  // If user selected FH Wiener Neustadt (FHWN) or room indicates FHWN
+  // CASE 3: TU München (TUM Nav)
+  if (activeUni === "tum") {
+    return {
+      isOnline: false,
+      isTuWien: false,
+      cleanLocation: cleanRoom,
+      rawLocation: raw,
+      url: `https://nav.tum.de/?q=${encodeURIComponent(cleanRoom)}`,
+      secondaryUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`TU München ${cleanRoom}`)}`,
+      providerName: "TUM Nav",
+      badgeLabel: "TUM Nav",
+    };
+  }
+
+  // CASE 4: FH Wiener Neustadt (FHWN)
   if (
-    preferredUniversity === "fhwn" ||
-    /fh\s*wiener\s*neustadt|fhwn/i.test(customUniversityName || "") ||
-    /fh\s*wiener\s*neustadt|fhwn/i.test(raw)
+    activeUni === "fhwn" ||
+    (activeUni === "other" && /fh\s*wiener\s*neustadt|fhwn/i.test(activeCustom || "")) ||
+    (!activeUni && /fh\s*wiener\s*neustadt|fhwn/i.test(raw))
   ) {
     let campusTarget = "FH Wiener Neustadt";
     let badgeText = "FHWN Campus";
@@ -182,7 +261,6 @@ export function getCampusMapInfo(
       badgeText = "FHWN";
     }
 
-    // Include the precise room number / name in search query
     const searchQuery = `${campusTarget} ${cleanRoom}`.trim();
     const fhwnGmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
 
@@ -197,59 +275,9 @@ export function getCampusMapInfo(
       badgeLabel: badgeText,
     };
   }
-  if (preferredUniversity === "tu_wien") {
-    // Smart query mapping for TU Wien rooms:
-    // e.g. "GM3 Vortmann" or "GM 3 Vortmann" -> TUW Maps searches best for "Vortmann"
-    let tuwSearchTerm = cleanRoom;
-    if (/vortmann/i.test(cleanRoom)) {
-      tuwSearchTerm = "Vortmann";
-    } else if (/radinger/i.test(cleanRoom)) {
-      tuwSearchTerm = "Radinger Hörsaal";
-    } else if (/prechtl/i.test(cleanRoom)) {
-      tuwSearchTerm = "Prechtlsaal";
-    } else if (/kuppelsaal/i.test(cleanRoom)) {
-      tuwSearchTerm = "Kuppelsaal";
-    } else if (/informatikhörsaal|inf\s*hs/i.test(cleanRoom)) {
-      tuwSearchTerm = "Informatikhörsaal";
-    } else if (/audimax|audi\.max/i.test(cleanRoom)) {
-      tuwSearchTerm = "Audimax";
-    } else if (/boeckl|böckl/i.test(cleanRoom)) {
-      tuwSearchTerm = "Böcklsaal";
-    } else if (/fritz\s*paschke/i.test(cleanRoom)) {
-      tuwSearchTerm = "Fritz Paschke";
-    }
 
-    const tuwUrl = `https://maps.tuwien.ac.at/?q=${encodeURIComponent(tuwSearchTerm)}`;
-    const gmapsFallback = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`TU Wien ${cleanRoom}`)}`;
-
-    return {
-      isOnline: false,
-      isTuWien: true,
-      cleanLocation: cleanRoom,
-      rawLocation: raw,
-      url: tuwUrl,
-      secondaryUrl: gmapsFallback,
-      providerName: "TU Wien Maps",
-      badgeLabel: "TUW Maps",
-    };
-  }
-
-  // If user selected TUM (TU München)
-  if (preferredUniversity === "tum") {
-    return {
-      isOnline: false,
-      isTuWien: false,
-      cleanLocation: cleanRoom,
-      rawLocation: raw,
-      url: `https://nav.tum.de/?q=${encodeURIComponent(cleanRoom)}`,
-      secondaryUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`TU München ${cleanRoom}`)}`,
-      providerName: "TUM Nav",
-      badgeLabel: "TUM Nav",
-    };
-  }
-
-  // If user selected WU Wien
-  if (preferredUniversity === "wu_wien") {
+  // CASE 5: WU Wien
+  if (activeUni === "wu_wien") {
     return {
       isOnline: false,
       isTuWien: false,
@@ -262,8 +290,8 @@ export function getCampusMapInfo(
     };
   }
 
-  // If user selected LMU München
-  if (preferredUniversity === "lmu") {
+  // CASE 6: LMU München
+  if (activeUni === "lmu") {
     return {
       isOnline: false,
       isTuWien: false,
@@ -276,8 +304,8 @@ export function getCampusMapInfo(
     };
   }
 
-  // If user selected ETH Zürich
-  if (preferredUniversity === "eth_zuerich") {
+  // CASE 7: ETH Zürich
+  if (activeUni === "eth_zuerich") {
     return {
       isOnline: false,
       isTuWien: false,
@@ -290,8 +318,8 @@ export function getCampusMapInfo(
     };
   }
 
-  // If user selected Universität Wien
-  if (preferredUniversity === "univie") {
+  // CASE 8: Universität Wien
+  if (activeUni === "univie") {
     return {
       isOnline: false,
       isTuWien: false,
@@ -304,8 +332,8 @@ export function getCampusMapInfo(
     };
   }
 
-  // If user selected RWTH Aachen
-  if (preferredUniversity === "rwth") {
+  // CASE 9: RWTH Aachen
+  if (activeUni === "rwth") {
     return {
       isOnline: false,
       isTuWien: false,
@@ -317,8 +345,8 @@ export function getCampusMapInfo(
     };
   }
 
-  // If user selected KIT Karlsruhe
-  if (preferredUniversity === "kit") {
+  // CASE 10: KIT Karlsruhe
+  if (activeUni === "kit") {
     return {
       isOnline: false,
       isTuWien: false,
@@ -330,8 +358,8 @@ export function getCampusMapInfo(
     };
   }
 
-  // If user selected TU Berlin
-  if (preferredUniversity === "tu_berlin") {
+  // CASE 11: TU Berlin
+  if (activeUni === "tu_berlin") {
     return {
       isOnline: false,
       isTuWien: false,
@@ -343,8 +371,8 @@ export function getCampusMapInfo(
     };
   }
 
-  // If user selected UZH
-  if (preferredUniversity === "uzh") {
+  // CASE 12: UZH
+  if (activeUni === "uzh") {
     return {
       isOnline: false,
       isTuWien: false,
@@ -356,8 +384,8 @@ export function getCampusMapInfo(
     };
   }
 
-  // 3. Fallback for "other" or custom university: Google Maps with university context
-  const uniName = (customUniversityName && customUniversityName.trim()) || "";
+  // FALLBACK: Other or custom university -> Google Maps
+  const uniName = (activeCustom && activeCustom.trim()) || "";
   const fullSearchTerm = uniName ? `${uniName} ${cleanRoom}` : cleanRoom;
   const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullSearchTerm)}`;
 

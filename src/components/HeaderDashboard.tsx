@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { formatGrade, formatEcts } from "@/lib/utils";
 import { useLanguage } from "@/lib/i18n";
+import { SUPPORTED_UNIVERSITIES } from "@/lib/campus-maps";
 import { EctsCalculatorModal } from "./EctsCalculatorModal";
 import { AuthModal } from "./AuthModal";
 import { OnboardingModal } from "./OnboardingModal";
@@ -71,6 +72,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     success?: boolean;
     message?: string;
   } | null>(null);
+  const [preferredUniversity, setPreferredUniversity] = useState("tu_wien");
 
   const persistAiSettings = (
     provider: string,
@@ -302,12 +304,22 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     const storedSession = localStorage.getItem("studyhub_session_size");
     if (storedSession) setDefaultSessionSize(Number(storedSession));
 
+    const storedUni = localStorage.getItem("studyhub_preferred_university");
+    if (storedUni) setPreferredUniversity(storedUni);
+
+    const handleUniUpdate = () => {
+      const u = localStorage.getItem("studyhub_preferred_university");
+      if (u) setPreferredUniversity(u);
+    };
+    window.addEventListener("studyhub_university_updated", handleUniUpdate);
+
     const isDark = document.documentElement.classList.contains("dark");
     setDarkMode(isDark);
 
     return () => {
       window.removeEventListener("studyhub_user_updated", handleUserUpdate);
       window.removeEventListener("studyhub_open_ai_settings", handleOpenAiSettings);
+      window.removeEventListener("studyhub_university_updated", handleUniUpdate);
     };
   }, []);
 
@@ -315,6 +327,8 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     localStorage.setItem("studyhub_target_ects", targetEcts.toString());
     localStorage.setItem("studyhub_daily_goal", defaultDailyGoal.toString());
     localStorage.setItem("studyhub_session_size", defaultSessionSize.toString());
+    localStorage.setItem("studyhub_preferred_university", preferredUniversity);
+    window.dispatchEvent(new CustomEvent("studyhub_university_updated", { detail: { university: preferredUniversity } }));
 
     // Persist AI configuration immediately to localStorage & user DB
     persistAiSettings(aiProvider, providerKeys);
@@ -904,6 +918,39 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                     </p>
                   </div>
                 )}
+              </div>
+
+              {/* Campus Navigation / University */}
+              <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <GraduationCap className="w-3.5 h-3.5 text-indigo-500" />
+                    {lang === "de" ? "Campus-Raumsuche & Hörsäle" : "Campus Navigation & Rooms"}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    {lang === "de" ? "Aktiv:" : "Active:"} {preferredUniversity === "google_maps" ? "Google Maps" : preferredUniversity === "tu_wien" ? "TU Wien Maps" : preferredUniversity === "tum" ? "TUM Nav" : (SUPPORTED_UNIVERSITIES.find((u) => u.id === preferredUniversity)?.shortName || preferredUniversity)}
+                  </span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {SUPPORTED_UNIVERSITIES.slice(0, 4).map((uni) => (
+                    <button
+                      key={uni.id}
+                      type="button"
+                      onClick={() => setPreferredUniversity(uni.id)}
+                      className={`p-2.5 rounded-xl border text-left transition-all ${
+                        preferredUniversity === uni.id
+                          ? "bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300 font-bold shadow-xs"
+                          : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center justify-between">
+                        <span>{uni.shortName}</span>
+                        {preferredUniversity === uni.id && <Check className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{uni.mapSystem}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Reset Demo Data */}

@@ -137,16 +137,24 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   const [mergeMessage, setMergeMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const savedUni = localStorage.getItem("studyhub_preferred_university");
-        if (savedUni) setPreferredUniversity(savedUni);
-        const savedCustom = localStorage.getItem("studyhub_custom_university");
-        if (savedCustom) setCustomUniversity(savedCustom);
-      } catch (e) {
-        console.warn("localStorage restricted:", e);
+    const loadUni = () => {
+      if (typeof window !== "undefined") {
+        try {
+          const savedUni = localStorage.getItem("studyhub_preferred_university");
+          if (savedUni) setPreferredUniversity(savedUni);
+          const savedCustom = localStorage.getItem("studyhub_custom_university");
+          setCustomUniversity(savedCustom || "");
+        } catch (e) {
+          console.warn("localStorage restricted:", e);
+        }
       }
-    }
+    };
+
+    loadUni();
+    window.addEventListener("studyhub_university_updated", loadUni);
+    return () => {
+      window.removeEventListener("studyhub_university_updated", loadUni);
+    };
   }, []);
 
   const handleSelectUniversity = (uniId: string, customName?: string) => {
@@ -154,10 +162,14 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("studyhub_preferred_university", uniId);
-        if (customName !== undefined) {
+        if (uniId === "other" && customName) {
           setCustomUniversity(customName);
           localStorage.setItem("studyhub_custom_university", customName);
+        } else {
+          setCustomUniversity("");
+          localStorage.removeItem("studyhub_custom_university");
         }
+        window.dispatchEvent(new CustomEvent("studyhub_university_updated", { detail: { university: uniId } }));
       } catch (e) {
         console.warn("Could not save to localStorage:", e);
       }
@@ -532,8 +544,10 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
               <span>
                 {preferredUniversity === "google_maps"
                   ? "Google Maps"
+                  : preferredUniversity === "tu_wien"
+                  ? "TU Wien (TUW Maps)"
                   : preferredUniversity === "tum"
-                  ? "TUM (TU München)"
+                  ? "TUM (TUM Nav)"
                   : preferredUniversity === "other" && customUniversity
                   ? customUniversity
                   : (SUPPORTED_UNIVERSITIES.find((u) => u.id === preferredUniversity)?.shortName || "TU Wien")}

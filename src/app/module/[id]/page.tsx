@@ -209,12 +209,19 @@ function ModuleDetailContent() {
   const [customUniversity, setCustomUniversity] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedUni = localStorage.getItem("studyhub_preferred_university");
-      if (savedUni) setPreferredUniversity(savedUni);
-      const savedCustom = localStorage.getItem("studyhub_custom_university");
-      if (savedCustom) setCustomUniversity(savedCustom);
-    }
+    const loadUni = () => {
+      if (typeof window !== "undefined") {
+        const savedUni = localStorage.getItem("studyhub_preferred_university");
+        if (savedUni) setPreferredUniversity(savedUni);
+        const savedCustom = localStorage.getItem("studyhub_custom_university");
+        setCustomUniversity(savedCustom || "");
+      }
+    };
+    loadUni();
+    window.addEventListener("studyhub_university_updated", loadUni);
+    return () => {
+      window.removeEventListener("studyhub_university_updated", loadUni);
+    };
   }, []);
 
   // Document upload state
