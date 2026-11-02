@@ -15,6 +15,7 @@ export interface UniversityProvider {
 
 export const SUPPORTED_UNIVERSITIES: UniversityProvider[] = [
   { id: "tu_wien", name: "TU Wien (Technische Universität Wien)", shortName: "TU Wien", country: "AT", city: "Wien", mapSystem: "TU Wien Maps" },
+  { id: "fhwn", name: "FH Wiener Neustadt (FHWN Campus & Standorte)", shortName: "FH Wiener Neustadt", country: "AT", city: "Wiener Neustadt", mapSystem: "FHWN Standorte & Maps" },
   { id: "google_maps", name: "Google Maps (Direkte Routen- & Raumsuche)", shortName: "Google Maps", country: "OTHER", mapSystem: "Google Maps" },
   { id: "tum", name: "TU München (TUM)", shortName: "TUM", country: "DE", city: "München", mapSystem: "TUM Nav" },
   { id: "univie", name: "Universität Wien (Hauptuni)", shortName: "Uni Wien", country: "AT", city: "Wien", mapSystem: "Uni Wien Campus" },
@@ -152,7 +153,50 @@ export function getCampusMapInfo(
     };
   }
 
-  // If user selected TU Wien
+  // If user selected FH Wiener Neustadt (FHWN) or room indicates FHWN
+  if (
+    preferredUniversity === "fhwn" ||
+    /fh\s*wiener\s*neustadt|fhwn/i.test(customUniversityName || "") ||
+    /fh\s*wiener\s*neustadt|fhwn/i.test(raw)
+  ) {
+    let campusTarget = "FH Wiener Neustadt";
+    let badgeText = "FHWN Campus";
+
+    if (/city\s*campus|\bcc\b|schlögelgasse/i.test(cleanRoom) || /city\s*campus|\bcc\b|schlögelgasse/i.test(raw)) {
+      campusTarget = "FH Wiener Neustadt City Campus, Schlögelgasse 22-26, 2700 Wiener Neustadt";
+      badgeText = "FHWN City Campus";
+    } else if (/wieselburg|\bwb\b/i.test(cleanRoom) || /wieselburg/i.test(raw)) {
+      campusTarget = "FH Wiener Neustadt Campus Wieselburg, Zeiselgraben 4, 3250 Wieselburg";
+      badgeText = "FHWN Wieselburg";
+    } else if (/tulln/i.test(cleanRoom) || /tulln/i.test(raw)) {
+      campusTarget = "FH Wiener Neustadt Campus Tulln, Konrad-Lorenz-Straße 10, 3430 Tulln";
+      badgeText = "FHWN Tulln";
+    } else if (/rudolfinerhaus|billroth/i.test(cleanRoom) || /rudolfinerhaus/i.test(raw)) {
+      campusTarget = "Campus Rudolfinerhaus Wien, Billrothstraße 78, 1190 Wien";
+      badgeText = "FHWN Rudolfinerhaus";
+    } else if (/johannes\s*gutenberg|hauptcampus|\bmc\b/i.test(cleanRoom) || /johannes\s*gutenberg/i.test(raw)) {
+      campusTarget = "FH Wiener Neustadt Hauptcampus, Johannes Gutenberg-Straße 3, 2700 Wiener Neustadt";
+      badgeText = "FHWN Hauptcampus";
+    } else {
+      campusTarget = "FH Wiener Neustadt, Johannes Gutenberg-Straße 3, 2700 Wiener Neustadt";
+      badgeText = "FHWN";
+    }
+
+    // Include the precise room number / name in search query
+    const searchQuery = `${campusTarget} ${cleanRoom}`.trim();
+    const fhwnGmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
+
+    return {
+      isOnline: false,
+      isTuWien: false,
+      cleanLocation: cleanRoom,
+      rawLocation: raw,
+      url: fhwnGmapsUrl,
+      secondaryUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`FH Wiener Neustadt ${cleanRoom}`)}`,
+      providerName: "FH Wiener Neustadt",
+      badgeLabel: badgeText,
+    };
+  }
   if (preferredUniversity === "tu_wien") {
     // Smart query mapping for TU Wien rooms:
     // e.g. "GM3 Vortmann" or "GM 3 Vortmann" -> TUW Maps searches best for "Vortmann"

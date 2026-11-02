@@ -172,7 +172,7 @@ export async function POST(req: Request) {
         data: {
           moduleId,
           name: safeTitle,
-          masteryScore: 50,
+          masteryScore: 0,
           summary: `Themenbereich basierend auf dem Dokument "${safeTitle}".`,
         },
       });

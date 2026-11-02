@@ -28,6 +28,7 @@ export async function GET(req: Request) {
         semester: true,
         topics: true,
         documents: true,
+        events: true,
         questions: {
           include: {
             progress: true,
@@ -38,28 +39,57 @@ export async function GET(req: Request) {
     });
 
     const enriched = modules.map((mod) => {
-      // Calculate days until exam
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Determine effective exam date: check mod.examDate or upcoming exam events from calendar
+      let targetExamDate: Date | null = mod.examDate ? new Date(mod.examDate) : null;
+      if (mod.events && mod.events.length > 0) {
+        const upcomingExams = mod.events
+          .filter(
+            (e: any) =>
+              (e.eventType === "EXAM" || e.eventType === "TEST" || e.isExam) &&
+              new Date(e.date) >= today
+          )
+          .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        if (upcomingExams.length > 0) {
+          if (!targetExamDate || targetExamDate < today) {
+            targetExamDate = new Date(upcomingExams[0].date);
+          }
+        }
+      }
+
+      // Calculate days until exam using day-level precision
       let daysUntilExam: number | null = null;
-      if (mod.examDate) {
-        const now = new Date();
-        const exam = new Date(mod.examDate);
-        const diffMs = exam.getTime() - now.getTime();
-        daysUntilExam = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      if (targetExamDate) {
+        const examDay = new Date(targetExamDate);
+        examDay.setHours(0, 0, 0, 0);
+        const diffMs = examDay.getTime() - today.getTime();
+        daysUntilExam = Math.round(diffMs / (1000 * 60 * 60 * 24));
       }
 
       // Calculate readiness score (Fahrschulbalken) based on topic mastery and question progress
+      // If no questions have been answered yet, readiness score is strictly 0%
       const totalQuestions = mod.questions.length;
-      let readinessScore = 0;
+      const hasAnyAnswered = mod.questions.some((q) =>
+        q.progress.some((p) => p.lastAnswerDate !== null && p.lastAnswerDate !== undefined)
+      );
 
-      if (mod.topics.length > 0) {
-        const avgTopicMastery =
-          mod.topics.reduce((sum, t) => sum + t.masteryScore, 0) / mod.topics.length;
-        readinessScore = Math.round(avgTopicMastery);
-      } else if (totalQuestions > 0) {
-        const masteredCount = mod.questions.filter((q) =>
-          q.progress.some((p) => (p.intervalDays ?? 0) >= 7)
-        ).length;
-        readinessScore = Math.round((masteredCount / totalQuestions) * 100);
+      let readinessScore = 0;
+      if (hasAnyAnswered) {
+        if (mod.topics.length > 0) {
+          const avgTopicMastery =
+            mod.topics.reduce((sum, t) => sum + t.masteryScore, 0) / mod.topics.length;
+          readinessScore = Math.round(avgTopicMastery);
+        } else if (totalQuestions > 0) {
+          const masteredCount = mod.questions.filter((q) =>
+            q.progress.some((p) => (p.intervalDays ?? 0) >= 7)
+          ).length;
+          readinessScore = Math.round((masteredCount / totalQuestions) * 100);
+        }
+      } else {
+        readinessScore = 0;
       }
 
       // Calculate daily question goal:

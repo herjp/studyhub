@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { moduleId, topicId, count = 10, apiKey, provider = "gemini", model } = body;
+    const { moduleId, topicId, count = 10, apiKey, provider = "gemini", model, isEnglish } = body;
     const requestedCount = typeof count === "number" ? count : 10;
 
     if (!moduleId) {
@@ -105,6 +105,7 @@ export async function POST(req: Request) {
         apiKey: apiKey?.trim() || undefined,
         provider,
         model,
+        isEnglish: !!isEnglish,
       });
     } catch (aiErr: any) {
       console.error("AI question generation failed:", aiErr);

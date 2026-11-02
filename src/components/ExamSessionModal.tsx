@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import confetti from "canvas-confetti";
 import { Portal } from "./Portal";
 import { useLanguage } from "@/lib/i18n";
+import { MathMarkdownRenderer } from "./MathMarkdownRenderer";
 import {
   CheckCircle,
   XCircle,
@@ -422,19 +423,19 @@ export function ExamSessionModal({
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                 {currentQ.type === "SINGLE_CHOICE"
-                  ? (lang === "de" ? "Single Choice (1 Antwort)" : "Single Choice (1 Answer)")
+                  ? "Single Choice"
                   : currentQ.type === "MULTIPLE_CHOICE"
-                  ? (lang === "de" ? "Multiple Choice (Mehrere Antworten möglich)" : "Multiple Choice (Multiple correct)")
+                  ? "Multiple Choice"
                   : currentQ.type === "MATCHING"
-                  ? (lang === "de" ? "Zuordnung & Abbildung (Drag & Drop)" : "Matching & Diagram (Drag & Drop)")
-                  : (lang === "de" ? "Freitext-Aufgabe (KI-bewertet)" : "Free Text (AI Evaluated)")}
+                  ? (lang === "de" ? "Zuordnung" : "Matching")
+                  : (lang === "de" ? "Freitext" : "Free Text")}
               </span>
             </div>
 
-            {/* Question Text */}
-            <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-relaxed">
-              {currentQ.questionText}
-            </h3>
+            {/* Question Text with KaTeX and LaTeX support */}
+            <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-relaxed">
+              <MathMarkdownRenderer content={currentQ.questionText} />
+            </div>
 
             {/* Source Reference preview */}
             {currentQ.sourceRef && (
@@ -482,11 +483,13 @@ export function ExamSessionModal({
                           {String.fromCharCode(65 + idx)}
                         </div>
                         <div className="flex-1">
-                          <p>{opt.text}</p>
+                          <div className="text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                            <MathMarkdownRenderer content={opt.text} />
+                          </div>
                           {isAnswerSubmitted && opt.explanation && (
-                            <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 italic">
-                              💡 {opt.explanation}
-                            </p>
+                            <div className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 italic">
+                              💡 <MathMarkdownRenderer content={opt.explanation} className="inline" />
+                            </div>
                           )}
                         </div>
                         {isAnswerSubmitted && opt.isCorrect && (
@@ -537,11 +540,13 @@ export function ExamSessionModal({
                           className="w-4 h-4 rounded text-indigo-600 mt-0.5 pointer-events-none"
                         />
                         <div className="flex-1">
-                          <p>{opt.text}</p>
+                          <div className="text-xs sm:text-sm text-slate-800 dark:text-slate-200">
+                            <MathMarkdownRenderer content={opt.text} />
+                          </div>
                           {isAnswerSubmitted && opt.explanation && (
-                            <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 italic">
-                              💡 {opt.explanation}
-                            </p>
+                            <div className="mt-1.5 text-xs text-slate-600 dark:text-slate-400 italic">
+                              💡 <MathMarkdownRenderer content={opt.explanation} className="inline" />
+                            </div>
                           )}
                         </div>
                         {isAnswerSubmitted && opt.isCorrect && (
@@ -733,9 +738,9 @@ export function ExamSessionModal({
                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
                           {lang === "de" ? "Offizielle Musterlösung:" : "Official Sample Solution:"}
                         </span>
-                        <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-line bg-white/70 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                          {currentQ.sampleSolution}
-                        </p>
+                        <div className="text-xs text-slate-700 dark:text-slate-300 bg-white/70 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                          <MathMarkdownRenderer content={currentQ.sampleSolution} />
+                        </div>
                       </div>
                     )}
                   </div>

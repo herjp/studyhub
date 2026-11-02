@@ -691,17 +691,41 @@ export async function summarizeTopic(params: {
   currentSummary?: string | null;
   apiKey?: string;
   provider?: string;
+  isEnglish?: boolean;
 }): Promise<SummaryResult> {
-  const { moduleId, topicName, currentSummary, apiKey, provider = "gemini" } = params;
+  const { moduleId, topicName, currentSummary, apiKey, provider = "gemini", isEnglish = false } = params;
 
   const docs = await searchModuleDocuments(moduleId, topicName, 4);
   const contextSnippet = docs.map((d) => `[Dokument: ${d.documentTitle}]:\n${d.textSnippet}`).join("\n\n");
   const docSources = Array.from(new Set(docs.map((d) => d.documentTitle)));
 
+  // Detect language of lecture context
+  const enMatches = (contextSnippet.match(/\b(the|is|and|of|in|to|with|for|on|that|this|are|from|as|by|an|be|which|or|at)\b/gi) || []).length;
+  const deMatches = (contextSnippet.match(/\b(der|die|das|und|ist|in|den|von|zu|mit|für|auf|nicht|eine|einer|einem|des|dem|sind|als)\b/gi) || []).length;
+  const isEnglishSummary = isEnglish || enMatches > deMatches * 1.15;
+
   if (apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY) {
     try {
-      const sys = `Du bist ein angesehener Universitätsprofessor.
-Erstelle für Studierende eine erstklassige, klausurrelevante Zusammenfassung (Cheat Sheet) zum Themengebiet "${topicName}".
+      const sys = isEnglishSummary
+        ? `You are an esteemed university professor.
+Create a top-tier, high-yield exam cheat sheet for students on the topic "${topicName}".
+STRICT FORMATTING REQUIREMENTS:
+- Write in clear, structured Markdown. Use headings on separate lines (e.g. "### 1. Core Definitions").
+- NEVER output raw hashtags in prose text!
+- Format all mathematical formulas and equations using standard LaTeX ($...$ or $$...$$).
+Respond EXCLUSIVELY in the following JSON format:
+{
+  "summary": "Structured Markdown with sections: ### 1. Core Concepts & Definitions\\n\\n### 2. Trade-offs & Practical Implications\\n\\n### 3. Common Exam Pitfalls & High-Yield Calculations",
+  "coreConcepts": ["Core Concept 1", "Core Concept 2", "Core Concept 3", "Core Concept 4"],
+  "examTips": ["Exam Tip 1", "Exam Tip 2", "Exam Tip 3"],
+  "sourceRefs": ["Lecture Slides"]
+}`
+        : `Du bist ein angesehener Universitätsprofessor.
+Erstelle für Studierende eine erstklassige, klausurrelevante Zusammenfassung (Cheat Sheet / Spickzettel) zum Themengebiet "${topicName}".
+STRIKTE QUALITÄTSVORGABEN:
+- Formatiere in klarem, strukturiertem Markdown mit echten Überschriften auf eigenen Zeilen (z. B. "### 1. Kernkonzepte").
+- Verwende KEINE rohen Hashtags im Fließtext!
+- Formatiere alle mathematischen Formeln und Gleichungen sauber in LaTeX mit Dollarzeichen ($...$ oder $$...$$).
 Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
 {
   "summary": "Strukturierter Markdown-Text mit Abschnitten: ### 1. Kernkonzepte & Definitionen\\n\\n### 2. Vor- und Nachteile (Trade-offs)\\n\\n### 3. Typische Klausuraufgaben & Prüfungsfallen",
@@ -710,7 +734,14 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
   "sourceRefs": ["Vorlesungsfolien"]
 }`;
 
-      const userPrompt = `Fach/Thema: ${topicName}
+      const userPrompt = isEnglishSummary
+        ? `Subject / Topic: ${topicName}
+Lecture excerpts:
+${contextSnippet || "Standard lecture content"}
+
+Previous student notes:
+${currentSummary || "None available."}`
+        : `Fach/Thema: ${topicName}
 Auszüge aus den Modulunterlagen:
 ${contextSnippet || "Standard-Vorlesungsinhalte"}
 
@@ -738,20 +769,48 @@ ${currentSummary || "Keine vorhanden."}`;
   }
 
   // Deterministic fallback
-  const coreConcepts = [
-    `Kernprinzipien & Definitionen zu "${topicName}"`,
-    `Vor- und Nachteile sowie Trade-offs in der Praxis`,
-    `Typische Klausurfallen und Best Practices`,
-    `Abgrenzung zu verwandten Konzepten der Vorlesung`,
-  ];
+  const coreConcepts = isEnglishSummary
+    ? [
+        `Core principles & definitions for "${topicName}"`,
+        `Pros, cons, and engineering trade-offs in practice`,
+        `Typical exam traps and recommended best practices`,
+        `Distinction from related course concepts`,
+      ]
+    : [
+        `Kernprinzipien & Definitionen zu "${topicName}"`,
+        `Vor- und Nachteile sowie Trade-offs in der Praxis`,
+        `Typische Klausurfallen und Best Practices`,
+        `Abgrenzung zu verwandten Konzepten der Vorlesung`,
+      ];
 
-  const examTips = [
-    `In Altklausuren wird hier besonders auf präzise Fachterminologie geachtet.`,
-    `Achte bei Freitext-Aufgaben auf das Nennen von konkreten Beispielen.`,
-    `Unterscheide stets zwischen Entwurfsmuster/Konzept und konkreter Implementierung.`,
-  ];
+  const examTips = isEnglishSummary
+    ? [
+        `Past exams heavily test precise technical terminology in this section.`,
+        `For free-text questions, always support your answers with concrete examples.`,
+        `Always distinguish between the general conceptual model and specific implementations.`,
+      ]
+    : [
+        `In Altklausuren wird hier besonders auf präzise Fachterminologie geachtet.`,
+        `Achte bei Freitext-Aufgaben auf das Nennen von konkreten Beispielen.`,
+        `Unterscheide stets zwischen Entwurfsmuster/Konzept und konkreter Implementierung.`,
+      ];
 
-  const summary = `### Kompakter Klausur-Spickzettel: ${topicName}
+  const summary = isEnglishSummary
+    ? `### High-Yield Exam Cheat Sheet: ${topicName}
+
+${currentSummary || "Core focus area of lecture materials."}
+
+#### 1. Relevant Lecture Extracts & Definitions
+${
+  contextSnippet ||
+  `The topic **${topicName}** is a recurring cornerstone in examinations. Pay close attention to definitions, formal equations, and practical problem-solving.`
+}
+
+#### 2. Key Criteria for Exam Success
+- **Precision:** Avoid colloquialisms; use the instructor's exact technical terms.
+- **Relational Context:** Connect theoretical definitions to practical trade-offs in maintenance, scalability, and consistency.
+- **Transfer Problems:** Prepare for scenario-based questions weighing pros and cons.`
+    : `### Kompakter Klausur-Spickzettel: ${topicName}
 
 ${currentSummary || "Zentraler Vorlesungsschwerpunkt."}
 
@@ -772,7 +831,7 @@ ${
     coreConcepts,
     examTips,
     sourceRefs: docSources.length ? docSources : ["Vorlesungsskript & Altklausuren"],
-    modelUsed: "StudyHub Engine",
+    modelUsed: isEnglishSummary ? "StudyHub Engine" : "StudyHub Engine",
   };
 }
 
@@ -958,6 +1017,7 @@ export async function generateQuestionsWithAI(params: {
   apiKey?: string;
   provider?: string;
   model?: string;
+  isEnglish?: boolean;
 }): Promise<GeneratedQuestion[]> {
   const {
     moduleId,
@@ -968,6 +1028,7 @@ export async function generateQuestionsWithAI(params: {
     apiKey,
     provider = "gemini",
     model,
+    isEnglish = false,
   } = params;
 
   let rawContext = documentsText;
@@ -990,18 +1051,59 @@ export async function generateQuestionsWithAI(params: {
   // 1. Clean boilerplate (Vorwort, Inhaltsverzeichnis, Impressum, Organisatorisches)
   const cleanedText = cleanDocumentBoilerplate(rawContext);
 
-  // 2. Sample stratified excerpts across the ENTIRE document (beginning, middle, and end)
+  // 2. Detect language: if uploaded materials are in English (or isEnglish is true), generate in English!
+  const enWords = (cleanedText.match(/\b(the|is|and|of|in|to|with|for|on|that|this|are|from|as|by|an|be|which|or|at)\b/gi) || []).length;
+  const deWords = (cleanedText.match(/\b(der|die|das|und|ist|in|den|von|zu|mit|für|auf|nicht|eine|einer|einem|des|dem|sind|als)\b/gi) || []).length;
+  const isEnglishContent = isEnglish || enWords > deWords * 1.15;
+
+  // 3. Sample stratified excerpts across the ENTIRE document (beginning, middle, and end)
   const stratifiedContext = sampleStratifiedChunks(cleanedText, 32000);
 
   const existingQuestionsWarning =
     existingQuestions && existingQuestions.length > 0
-      ? `\nBEREITS EXISTIERENDE FRAGEN (STRENG VERBOTEN ZU WIEDERHOLEN!):\n${existingQuestions
+      ? `\n${isEnglishContent ? "ALREADY EXISTING QUESTIONS (STRICTLY FORBIDDEN TO REPEAT!):" : "BEREITS EXISTIERENDE FRAGEN (STRENG VERBOTEN ZU WIEDERHOLEN!):"}\n${existingQuestions
           .slice(0, 30)
           .map((q, i) => `${i + 1}. ${q}`)
           .join("\n")}\n`
       : "";
 
-  const sys = `Du bist ein erfahrener Universitätsprofessor und anspruchsvoller Klausurersteller.
+  const sys = isEnglishContent
+    ? `You are an esteemed university professor and rigorous exam creator.
+CORE QUALITY REQUIREMENTS:
+1. Create exam questions EXCLUSIVELY based on the technical academic content of the provided lecture materials.
+2. Write ALL questions, options, explanations, and sample solutions strictly in ENGLISH!
+3. STRICTLY FORBIDDEN:
+   - NO questions about tables of contents, outlines, or page numbers!
+   - NO questions about prefaces, dedications, acknowledgements, or publisher boilerplate!
+   - NO meta-questions about authors, professors, universities, lecture dates, or office hours!
+4. GENUINE EXAM RELEVANCE:
+   - Test key concepts, definitions, theories, models, formulas, architectural trade-offs, and design patterns.
+   - Test cause-and-effect principles, advantages/disadvantages, real-world case studies, and diagram relations.
+5. BALANCED QUESTION MIX:
+   - SINGLE_CHOICE: Exactly 1 correct option out of 4; each option with a clear explanation.
+   - MULTIPLE_CHOICE: 2 to 3 correct options out of 4 with explanations.
+   - FREE_TEXT: Academic transfer or exam problem with a detailed grading rubric and sample solution.
+   - MATCHING: Matching / drag-and-drop task for processes, models, diagrams, or definitions (in 'options' each item has 'text' for the term and 'target' for the matching definition/category).
+6. MATHEMATICAL FORMULAS & NOTATION:
+   - Always format mathematical formulas, variables, and equations using standard LaTeX with single dollar signs (e.g. $V = f(P, U)$, $E = mc^2$, $\\alpha \\le \\beta$). Never write raw unformatted signs like '<=' or '>='.
+7. NO DUPLICATES: Create exactly ${count} new, distinct exam questions that do not repeat existing ones.${existingQuestionsWarning}
+
+Respond EXCLUSIVELY as a valid JSON object with the "questions" key:
+{
+  "questions": [
+    {
+      "type": "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "FREE_TEXT" | "MATCHING",
+      "questionText": "Rigorous exam question...",
+      "options": [
+        { "text": "Concept or Option A", "isCorrect": true, "explanation": "Why correct", "target": "Target definition for MATCHING" }
+      ],
+      "sampleSolution": "Detailed academic sample solution with grading criteria",
+      "sourceRef": "Lecture Slide / Chapter",
+      "topicName": "${topicName}"
+    }
+  ]
+}`
+    : `Du bist ein erfahrener Universitätsprofessor und anspruchsvoller Klausurersteller.
 WICHTIGSTE QUALITÄTSVORGABEN:
 1. Erstelle Prüfungsfragen AUSSCHLIESSLICH auf Basis der fachlichen Inhalte des bereitgestellten Vorlesungsmaterials.
 2. ABSOLUT VERBOTEN (STRENG FILTERN):
@@ -1017,7 +1119,9 @@ WICHTIGSTE QUALITÄTSVORGABEN:
    - FREE_TEXT: Akademische Transfer- oder Klausuraufgabe mit ausführlicher Kriterien-Musterlösung.
    - MATCHING: Zuordnungs- / Drag-and-Drop-Aufgabe für Prozesse, Modelle, Abbildungen oder Definitionen.
      (In 'options' hat jedes Element 'text' für den Begriff und 'target' für die passende Definition/Kategorie).
-5. KEINE DUPLIKATE: Erstelle genau ${count} neue, eigenständige Prüfungsfragen, die sich nicht wiederholen.${existingQuestionsWarning}
+5. MATHEMATISCHE FORMELN & GLEICHUNGEN:
+   - Schreibe alle mathematischen Formeln, Variablen und Ausdrücke ausnahmslos in valider LaTeX-Syntax mit Dollarzeichen (z.B. $V = f(P, U)$, $E = mc^2$, $\\alpha \\le \\beta$). Verwende niemals rohe Größer-/Kleiner-Zeichen ohne saubere Formatierung.
+6. KEINE DUPLIKATE: Erstelle genau ${count} neue, eigenständige Prüfungsfragen, die sich nicht wiederholen.${existingQuestionsWarning}
 
 Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit dem Key "questions":
 {
@@ -1036,7 +1140,16 @@ Antworte AUSSCHLIESSLICH als valides JSON-Objekt mit dem Key "questions":
 }`;
 
   const requestCount = Math.min(35, count >= 15 ? count + 3 : count + 1);
-  const userPrompt = `FACH / MODUL: ${topicName}
+  const userPrompt = isEnglishContent
+    ? `SUBJECT / MODULE: ${topicName}
+
+EXCERPTS FROM LECTURE MATERIALS (Evenly sampled across all chapters):
+---
+${stratifiedContext}
+---
+
+Create exactly ${requestCount} distinct, rigorous, high-yield exam questions on the technical content of the excerpts above in English. Distribute questions across the syllabus. Ignore prefaces and formal boilerplate completely.`
+    : `FACH / MODUL: ${topicName}
 
 AUSZÜGE AUS DEM GESAMTEN VORLESUNGSMATERIAL (Gleichmäßig über alle Kapitel verteilt):
 ---

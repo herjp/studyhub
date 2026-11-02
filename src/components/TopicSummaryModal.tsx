@@ -61,6 +61,7 @@ export function TopicSummaryModal({
           topicId,
           apiKey: storedKey,
           provider: storedProvider,
+          isEnglish: lang === "en",
         }),
       });
 

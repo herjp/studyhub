@@ -40,6 +40,8 @@ import {
   X,
   MessageSquareText,
   ExternalLink,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { getCampusMapInfo } from "@/lib/campus-maps";
 import { HeaderDashboard } from "@/components/HeaderDashboard";
@@ -50,6 +52,7 @@ import { TopicSummaryModal } from "@/components/TopicSummaryModal";
 import { EditModuleDialog } from "@/components/EditModuleDialog";
 import { EditQuestionDialog } from "@/components/EditQuestionDialog";
 import { ModuleTutorChat } from "@/components/ModuleTutorChat";
+import { MathMarkdownRenderer } from "@/components/MathMarkdownRenderer";
 import { AuthModal } from "@/components/AuthModal";
 import { Portal } from "@/components/Portal";
 import { formatGrade, formatEcts } from "@/lib/utils";
@@ -993,9 +996,12 @@ function ModuleDetailContent() {
 
   // AI Question Generation State
   const [isGeneratingAiQuestions, setIsGeneratingAiQuestions] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationStage, setGenerationStage] = useState("");
   const [aiQuestionCount, setAiQuestionCount] = useState<number>(10);
   const [aiSuccessToast, setAiSuccessToast] = useState<string | null>(null);
   const [aiErrorToast, setAiErrorToast] = useState<string | null>(null);
+  const [isEventsExpanded, setIsEventsExpanded] = useState(false);
 
   // Question Management State
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
@@ -1035,8 +1041,42 @@ function ModuleDetailContent() {
 
     const effectiveCount = countOverride || aiQuestionCount || 10;
     setIsGeneratingAiQuestions(true);
+    setGenerationProgress(12);
+    setGenerationStage(
+      lang === "de"
+        ? "1/4: Scanne Vorlesungsmaterialien & Altklausuren..."
+        : "1/4: Scanning lecture materials & past exams..."
+    );
     setAiSuccessToast(null);
     setAiErrorToast(null);
+
+    const progressTimer = setInterval(() => {
+      setGenerationProgress((prev) => {
+        if (prev < 40) {
+          setGenerationStage(
+            lang === "de"
+              ? "2/4: Extrahiere Kernkonzepte & Definitionen..."
+              : "2/4: Extracting key concepts & definitions..."
+          );
+          return prev + 10;
+        } else if (prev < 75) {
+          setGenerationStage(
+            lang === "de"
+              ? "3/4: Generiere Single/Multiple Choice & Freitext..."
+              : "3/4: Generating Single/Multiple Choice & Free Text..."
+          );
+          return prev + 7;
+        } else if (prev < 90) {
+          setGenerationStage(
+            lang === "de"
+              ? "4/4: Formatiere Musterlösungen & Spaced Repetition..."
+              : "4/4: Formatting solutions & Spaced Repetition..."
+          );
+          return prev + 3;
+        }
+        return prev;
+      });
+    }, 900);
 
     try {
       const storedProvider = typeof window !== "undefined" ? localStorage.getItem("studyhub_ai_provider") || "gemini" : "gemini";
@@ -1057,12 +1097,16 @@ function ModuleDetailContent() {
           apiKey: storedKey,
           provider: storedProvider,
           model: storedModel,
+          isEnglish: lang === "en",
         }),
       });
 
       const data = await res.json();
 
       if (res.ok) {
+        clearInterval(progressTimer);
+        setGenerationProgress(100);
+        setGenerationStage(lang === "de" ? "✓ Fertiggestellt!" : "✓ Completed!");
         setAiSuccessToast(
           lang === "de"
             ? `✓ ${data.count || effectiveCount} neue Klausurfragen erfolgreich aus deinen Vorlesungsunterlagen generiert und gespeichert!`
@@ -1071,15 +1115,22 @@ function ModuleDetailContent() {
         setTimeout(() => setAiSuccessToast(null), 8000);
         fetchModule();
       } else {
+        clearInterval(progressTimer);
         setAiErrorToast(data.error || "Fehler beim Generieren der Fragen.");
         setTimeout(() => setAiErrorToast(null), 8000);
       }
     } catch (err: any) {
+      clearInterval(progressTimer);
       console.error(err);
       setAiErrorToast(err.message || "Netzwerkfehler beim Generieren.");
       setTimeout(() => setAiErrorToast(null), 8000);
     } finally {
-      setIsGeneratingAiQuestions(false);
+      clearInterval(progressTimer);
+      setTimeout(() => {
+        setIsGeneratingAiQuestions(false);
+        setGenerationProgress(0);
+        setGenerationStage("");
+      }, 500);
     }
   };
 
@@ -1311,12 +1362,25 @@ function ModuleDetailContent() {
 
               {/* Countdown badge & info */}
               <div className="flex items-center gap-4 text-xs text-slate-500 pt-1">
-                {daysLeft !== null && daysLeft !== undefined && moduleData?.examDate ? (
-                  <span className="inline-flex items-center gap-1.5 font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1 rounded-xl">
-                    <Calendar className="w-3.5 h-3.5" />
-                    {lang === "de" ? `Klausur in ${daysLeft} Tagen` : `Exam in ${daysLeft} days`} (
-                    {!isNaN(new Date(moduleData.examDate).getTime()) ? new Date(moduleData.examDate).toLocaleDateString(lang === "de" ? "de-DE" : "en-US") : moduleData.examDate})
-                  </span>
+                {daysLeft !== null && daysLeft !== undefined ? (
+                  daysLeft < 0 ? (
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
+                      {lang === "de" ? "Klausur vorüber" : "Exam passed"}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1 rounded-xl">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {daysLeft === 0
+                        ? (lang === "de" ? "Klausur heute! 🎯" : "Exam today! 🎯")
+                        : (lang === "de" ? `Klausur in ${daysLeft} Tagen` : `Exam in ${daysLeft} days`)}
+                      {moduleData?.examDate && !isNaN(new Date(moduleData.examDate).getTime()) && (
+                        <span className="font-normal opacity-80">
+                          ({new Date(moduleData.examDate).toLocaleDateString(lang === "de" ? "de-DE" : "en-US")})
+                        </span>
+                      )}
+                    </span>
+                  )
                 ) : (
                   <span className="text-slate-400 flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5" /> {t.noExamDate}
@@ -1413,77 +1477,93 @@ function ModuleDetailContent() {
                 </div>
 
                 {moduleData.events && moduleData.events.length > 0 && (
-                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 mt-2 space-y-2">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
-                      <span className="flex items-center gap-1.5">
+                  <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEventsExpanded(!isEventsExpanded)}
+                      className="w-full flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 py-1.5 px-3 rounded-xl bg-slate-50/70 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 transition-all cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
                         <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                        {lang === "de" ? "Zugeordnete Vorlesungen & Termine" : "Scheduled Lectures & Events"} ({moduleData.events.length})
+                        <span>{lang === "de" ? "Zugeordnete Vorlesungen & Termine" : "Scheduled Lectures & Events"}</span>
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          {moduleData.events.length}
+                        </span>
                       </span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
-                      {moduleData.events.map((evt: any) => {
-                        const evtMap = evt.location ? getCampusMapInfo(evt.location, preferredUniversity, customUniversity) : null;
-                        let icon = "📚";
-                        let badgeColor =
-                          "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 dark:border-sky-800";
-                        if (evt.eventType === "EXAM") {
-                          icon = "🔥";
-                          badgeColor =
-                            "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border-rose-200 dark:border-rose-800 font-bold";
-                        } else if (evt.eventType === "TEST") {
-                          icon = "⚡";
-                          badgeColor =
-                            "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800 font-bold";
-                        } else if (evt.eventType === "EXERCISE") {
-                          icon = "✏️";
-                          badgeColor =
-                            "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800";
-                        }
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+                        {isEventsExpanded
+                          ? (lang === "de" ? "Einklappen" : "Collapse")
+                          : (lang === "de" ? "Termine anzeigen" : "Show events")}
+                        {isEventsExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </span>
+                    </button>
 
-                        return (
-                          <div
-                            key={evt.id}
-                            className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 text-xs space-y-1"
-                          >
-                            <div className="flex items-center justify-between gap-1.5">
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded-md border ${badgeColor}`}>
-                                {icon} {evt.eventType === "EXAM" ? (lang === "de" ? "Klausur" : "Exam") : evt.eventType === "TEST" ? "Test" : evt.eventType === "EXERCISE" ? (lang === "de" ? "Übung" : "Exercise") : (lang === "de" ? "Vorlesung" : "Lecture")}
-                              </span>
-                              <span className="text-[11px] font-semibold text-slate-500">
-                                {evt.date && !isNaN(new Date(evt.date).getTime())
-                                  ? new Date(evt.date).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
-                                      day: "2-digit",
-                                      month: "2-digit",
-                                    })
-                                  : evt.date || ""}
-                              </span>
+                    {isEventsExpanded && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1 mt-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                        {moduleData.events.map((evt: any) => {
+                          const evtMap = evt.location ? getCampusMapInfo(evt.location, preferredUniversity, customUniversity) : null;
+                          let icon = "📚";
+                          let badgeColor =
+                            "bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border-sky-200 dark:border-sky-800";
+                          if (evt.eventType === "EXAM") {
+                            icon = "🔥";
+                            badgeColor =
+                              "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border-rose-200 dark:border-rose-800 font-bold";
+                          } else if (evt.eventType === "TEST") {
+                            icon = "⚡";
+                            badgeColor =
+                              "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800 font-bold";
+                          } else if (evt.eventType === "EXERCISE") {
+                            icon = "✏️";
+                            badgeColor =
+                              "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800";
+                          }
+
+                          return (
+                            <div
+                              key={evt.id}
+                              className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/60 text-xs space-y-1"
+                            >
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-md border ${badgeColor}`}>
+                                  {icon} {evt.eventType === "EXAM" ? (lang === "de" ? "Klausur" : "Exam") : evt.eventType === "TEST" ? "Test" : evt.eventType === "EXERCISE" ? (lang === "de" ? "Übung" : "Exercise") : (lang === "de" ? "Vorlesung" : "Lecture")}
+                                </span>
+                                <span className="text-[11px] font-semibold text-slate-500">
+                                  {evt.date && !isNaN(new Date(evt.date).getTime())
+                                    ? new Date(evt.date).toLocaleDateString(lang === "de" ? "de-DE" : "en-US", {
+                                        day: "2-digit",
+                                        month: "2-digit",
+                                      })
+                                    : evt.date || ""}
+                                </span>
+                              </div>
+                              <div className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={evt.title}>
+                                {evt.title}
+                              </div>
+                              <div className="flex items-center justify-between gap-1 text-[11px] text-slate-500">
+                                {evt.startTime && <span>{evt.startTime} {lang === "de" ? "Uhr" : ""}</span>}
+                                {evt.location && evtMap && (
+                                  evtMap.url ? (
+                                    <a
+                                      href={evtMap.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-0.5 truncate max-w-[120px]"
+                                      title={lang === "de" ? `In ${evtMap.providerName} öffnen` : `Open in ${evtMap.providerName}`}
+                                    >
+                                      <MapPin className="w-2.5 h-2.5 text-rose-500 flex-shrink-0" />
+                                      <span className="truncate">{evtMap.cleanLocation}</span>
+                                    </a>
+                                  ) : (
+                                    <span className="truncate max-w-[120px]">{evt.location}</span>
+                                  )
+                                )}
+                              </div>
                             </div>
-                            <div className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={evt.title}>
-                              {evt.title}
-                            </div>
-                            <div className="flex items-center justify-between gap-1 text-[11px] text-slate-500">
-                              {evt.startTime && <span>{evt.startTime} {lang === "de" ? "Uhr" : ""}</span>}
-                              {evt.location && evtMap && (
-                                evtMap.url ? (
-                                  <a
-                                    href={evtMap.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-0.5 truncate max-w-[120px]"
-                                    title={lang === "de" ? `In ${evtMap.providerName} öffnen` : `Open in ${evtMap.providerName}`}
-                                  >
-                                    <MapPin className="w-2.5 h-2.5 text-rose-500 flex-shrink-0" />
-                                    <span className="truncate">{evtMap.cleanLocation}</span>
-                                  </a>
-                                ) : (
-                                  <span className="truncate max-w-[120px]">{evt.location}</span>
-                                )
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2049,15 +2129,34 @@ function ModuleDetailContent() {
                       type="button"
                       onClick={() => handleGenerateAiQuestions(undefined, aiQuestionCount)}
                       disabled={isGeneratingAiQuestions}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-sm cursor-pointer disabled:opacity-60"
                     >
-                      <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                      <Sparkles className="w-3.5 h-3.5" />
                       {isGeneratingAiQuestions
-                        ? (lang === "de" ? `Generiere ${aiQuestionCount} Fragen mit KI...` : `Generating ${aiQuestionCount} questions...`)
-                        : (lang === "de" ? `Mit KI ${aiQuestionCount} Fragen generieren` : `Generate ${aiQuestionCount} Questions`)}
+                        ? (lang === "de" ? "Wird generiert..." : "Generating...")
+                        : (lang === "de" ? `${aiQuestionCount} Fragen generieren` : `Generate ${aiQuestionCount} Qs`)}
                     </button>
                   </div>
                 </div>
+
+                {/* AI Generation Live Progress Bar */}
+                {isGeneratingAiQuestions && (
+                  <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 space-y-2 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                      <span className="flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 animate-spin" />
+                        {generationStage || (lang === "de" ? "Generiere Fragen..." : "Generating questions...")}
+                      </span>
+                      <span className="font-mono text-indigo-700 dark:text-indigo-300">{generationProgress}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="bg-indigo-600 h-2 rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${generationProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {aiSuccessToast && (
                   <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2 animate-in fade-in">
@@ -2729,15 +2828,34 @@ function ModuleDetailContent() {
                     type="button"
                     onClick={() => handleGenerateAiQuestions(undefined, aiQuestionCount)}
                     disabled={isGeneratingAiQuestions}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-sm cursor-pointer disabled:opacity-60"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <Sparkles className="w-3.5 h-3.5" />
                     {isGeneratingAiQuestions
-                      ? (lang === "de" ? `Generiere ${aiQuestionCount} Fragen mit KI...` : `Generating ${aiQuestionCount} questions...`)
-                      : (lang === "de" ? `Mit KI ${aiQuestionCount} neue Fragen generieren` : `Generate ${aiQuestionCount} Questions`)}
+                      ? (lang === "de" ? "Wird generiert..." : "Generating...")
+                      : (lang === "de" ? `${aiQuestionCount} neue Fragen generieren` : `Generate ${aiQuestionCount} Qs`)}
                   </button>
                 </div>
               </div>
+
+              {/* AI Generation Live Progress Bar */}
+              {isGeneratingAiQuestions && (
+                <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 space-y-2 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 animate-spin" />
+                      {generationStage || (lang === "de" ? "Generiere Fragen..." : "Generating questions...")}
+                    </span>
+                    <span className="font-mono text-indigo-700 dark:text-indigo-300">{generationProgress}%</span>
+                  </div>
+                  <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-indigo-600 h-2 rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${generationProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {aiSuccessToast && (
                 <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2 animate-in fade-in">
@@ -3131,9 +3249,9 @@ function ModuleDetailContent() {
                           </div>
                         </div>
 
-                        <p className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
-                          {q.questionText}
-                        </p>
+                        <div className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                          <MathMarkdownRenderer content={q.questionText} />
+                        </div>
 
                         {/* Options preview for SC and MC */}
                         {(q.type === "SINGLE_CHOICE" || q.type === "MULTIPLE_CHOICE") && parsedOptions.length > 0 && (
@@ -3184,9 +3302,9 @@ function ModuleDetailContent() {
                             <span className="font-bold block text-[10px] uppercase tracking-wider text-purple-700 dark:text-purple-300 mb-0.5">
                               {lang === "de" ? "Musterlösung:" : "Sample Solution:"}
                             </span>
-                            <p className="line-clamp-2 text-slate-700 dark:text-slate-300">
-                              {q.sampleSolution}
-                            </p>
+                            <div className="line-clamp-3 text-slate-700 dark:text-slate-300">
+                              <MathMarkdownRenderer content={q.sampleSolution} />
+                            </div>
                           </div>
                         )}
                       </div>

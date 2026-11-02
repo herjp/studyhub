@@ -599,11 +599,11 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           {/* Import .ics Calendar */}
           <button
             onClick={() => setIsIcsModalOpen(true)}
-            title={lang === "de" ? "Kalenderdatei (.ics) importieren – Termine, Fristen & Klausuren" : "Import calendar (.ics) – appointments, deadlines & exams"}
+            title={lang === "de" ? "Kalenderdatei (.ics) importieren" : "Import calendar (.ics)"}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-sky-50 dark:bg-sky-950/70 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800 transition-all shadow-sm"
           >
             <UploadCloud className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-            <span>{lang === "de" ? "📥 Kalender (.ics) importieren" : "📥 Import Calendar (.ics)"}</span>
+            <span>{lang === "de" ? "Kalender (.ics) importieren" : "Import Calendar (.ics)"}</span>
           </button>
 
           <button
@@ -620,7 +620,7 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/70 dark:hover:bg-rose-900/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 transition-all shadow-sm"
           >
             <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-            <span>{lang === "de" ? "🗑️ Kalender zurücksetzen" : "🗑️ Reset Calendar"}</span>
+            <span>{lang === "de" ? "Kalender zurücksetzen" : "Reset Calendar"}</span>
           </button>
         </div>
       </div>

@@ -134,14 +134,21 @@ export function ModuleCard({
         {/* Exam Countdown & Dates */}
         <div className="flex items-center gap-3 mt-3 text-xs text-slate-500">
           {daysLeft !== null && daysLeft !== undefined ? (
-            <span
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs ${countdownBadge}`}
-            >
-              <CountdownIcon className="w-3.5 h-3.5" />
-              {daysLeft === 0
-                ? t.examToday
-                : t.daysRemaining.replace("{n}", daysLeft.toString())}
-            </span>
+            daysLeft < 0 ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
+                {lang === "de" ? "Klausur vorüber" : "Exam passed"}
+              </span>
+            ) : (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs ${countdownBadge}`}
+              >
+                <CountdownIcon className="w-3.5 h-3.5" />
+                {daysLeft === 0
+                  ? t.examToday
+                  : t.daysRemaining.replace("{n}", daysLeft.toString())}
+              </span>
+            )
           ) : (
             <span className="inline-flex items-center gap-1.5 text-slate-400">
               <Calendar className="w-3.5 h-3.5" /> {t.noExamDate}

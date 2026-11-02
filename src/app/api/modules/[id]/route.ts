@@ -44,25 +44,56 @@ export async function GET(
       return NextResponse.json({ error: "Modul nicht gefunden" }, { status: 404 });
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Determine effective exam date: check mod.examDate or upcoming exam events from calendar
+    let targetExamDate: Date | null = mod.examDate ? new Date(mod.examDate) : null;
+    if (mod.events && mod.events.length > 0) {
+      const upcomingExams = mod.events
+        .filter(
+          (e: any) =>
+            (e.eventType === "EXAM" || e.eventType === "TEST" || e.isExam) &&
+            new Date(e.date) >= today
+        )
+        .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      if (upcomingExams.length > 0) {
+        if (!targetExamDate || targetExamDate < today) {
+          targetExamDate = new Date(upcomingExams[0].date);
+        }
+      }
+    }
+
     // Days until exam
     let daysUntilExam: number | null = null;
-    if (mod.examDate) {
-      const now = new Date();
-      const exam = new Date(mod.examDate);
-      const diffMs = exam.getTime() - now.getTime();
-      daysUntilExam = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+    if (targetExamDate) {
+      const examDay = new Date(targetExamDate);
+      examDay.setHours(0, 0, 0, 0);
+      const diffMs = examDay.getTime() - today.getTime();
+      daysUntilExam = Math.round(diffMs / (1000 * 60 * 60 * 24));
     }
 
     // Readiness score
+    // If no questions have been answered yet, readiness score is strictly 0%
+    const totalQuestions = mod.questions.length;
+    const hasAnyAnswered = mod.questions.some((q) =>
+      q.progress.some((p) => p.lastAnswerDate !== null && p.lastAnswerDate !== undefined)
+    );
+
     let readinessScore = 0;
-    if (mod.topics.length > 0) {
-      const avg = mod.topics.reduce((acc, t) => acc + t.masteryScore, 0) / mod.topics.length;
-      readinessScore = Math.round(avg);
-    } else if (mod.questions.length > 0) {
-      const mastered = mod.questions.filter((q) =>
-        q.progress.some((p) => (p.intervalDays ?? 0) >= 7)
-      ).length;
-      readinessScore = Math.round((mastered / mod.questions.length) * 100);
+    if (hasAnyAnswered) {
+      if (mod.topics.length > 0) {
+        const avg = mod.topics.reduce((acc, t) => acc + t.masteryScore, 0) / mod.topics.length;
+        readinessScore = Math.round(avg);
+      } else if (totalQuestions > 0) {
+        const mastered = mod.questions.filter((q) =>
+          q.progress.some((p) => (p.intervalDays ?? 0) >= 7)
+        ).length;
+        readinessScore = Math.round((mastered / totalQuestions) * 100);
+      }
+    } else {
+      readinessScore = 0;
     }
 
     // Due questions for spaced repetition (today or overdue)
