@@ -195,11 +195,13 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     const isDark = document.documentElement.classList.contains("dark");
     setDarkMode(isDark);
 
-    // Check if onboarding tour has been completed
-    const onboardingSeen = localStorage.getItem("studyhub_onboarding_seen");
-    if (!onboardingSeen) {
-      setShowOnboarding(true);
-    }
+    // Check if new interactive onboarding tour v2 has been completed
+    try {
+      const tourSeen = localStorage.getItem("studyhub_tour_v2");
+      if (!tourSeen) {
+        setShowOnboarding(true);
+      }
+    } catch {}
   }, []);
 
   const handleSaveSettings = () => {
@@ -365,10 +367,11 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
             {/* Help / Onboarding Tour Button */}
             <button
               onClick={() => setShowOnboarding(true)}
-              title={lang === "de" ? "Kurzanleitung & App-Tour öffnen" : "Open App Tour & Guide"}
-              className="p-2 text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/60 border border-transparent hover:border-indigo-200 dark:hover:border-indigo-800 transition-colors"
+              title={lang === "de" ? "Interaktive App-Tour & Guide starten" : "Start Interactive Tour & Guide"}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 transition-colors shadow-2xs"
             >
-              <HelpCircle className="w-4 h-4" />
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span className="hidden sm:inline">{lang === "de" ? "Tour" : "Tour"}</span>
             </button>
 
             {/* User Account / Profile / Login - GANZ RECHTS */}

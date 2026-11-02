@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Calendar,
   Plus,
@@ -41,7 +42,12 @@ export function SemesterTabs({
   const { lang, t } = useLanguage();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingSemester, setEditingSemester] = useState<SemesterType | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<{ id: string; top: number; right: number } | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ id: string; top: number; left: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Form states
   const [name, setName] = useState("");
@@ -225,10 +231,12 @@ export function SemesterTabs({
                   if (menuAnchor?.id === sem.id) {
                     setMenuAnchor(null);
                   } else {
+                    const menuWidth = 192;
+                    const left = Math.max(10, Math.min(window.innerWidth - menuWidth - 10, rect.right - menuWidth));
                     setMenuAnchor({
                       id: sem.id,
                       top: rect.bottom + 6,
-                      right: window.innerWidth - rect.right,
+                      left: left,
                     });
                   }
                 }}
@@ -245,11 +253,11 @@ export function SemesterTabs({
         })}
       </div>
 
-      {/* Floating 3-Dots Menu in Foreground (outside horizontal overflow) */}
-      {menuAnchor && (
-        <>
+      {/* Floating 3-Dots Menu rendered via Portal into body to escape backdrop-filter clipping */}
+      {mounted && menuAnchor && createPortal(
+        <div className="fixed inset-0 z-[99999] pointer-events-auto">
           <div
-            className="fixed inset-0 z-50 bg-transparent"
+            className="fixed inset-0 bg-transparent"
             onClick={() => setMenuAnchor(null)}
           />
           {(() => {
@@ -257,8 +265,8 @@ export function SemesterTabs({
             if (!sem) return null;
             return (
               <div
-                style={{ top: `${menuAnchor.top}px`, right: `${menuAnchor.right}px` }}
-                className="fixed z-50 w-48 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 text-xs animate-in fade-in zoom-in-95 duration-100 ring-1 ring-black/5 dark:ring-white/10 space-y-0.5"
+                style={{ top: `${menuAnchor.top}px`, left: `${menuAnchor.left}px` }}
+                className="fixed z-[100000] w-48 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-1.5 text-xs animate-in fade-in zoom-in-95 duration-100 ring-1 ring-black/10 dark:ring-white/10 space-y-0.5"
               >
                 {!sem.isActive && (
                   <button
@@ -293,7 +301,8 @@ export function SemesterTabs({
               </div>
             );
           })()}
-        </>
+        </div>,
+        document.body
       )}
 
       {/* Add Semester Dialog */}

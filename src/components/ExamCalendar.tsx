@@ -446,9 +446,13 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
   const activeMapName =
     preferredUniversity === "google_maps"
       ? "Google Maps"
+      : preferredUniversity === "tum"
+      ? "TUM"
+      : preferredUniversity === "tu_wien"
+      ? "TU Wien Maps"
       : preferredUniversity === "other"
       ? (customUniversity || "Google Maps")
-      : (currentProviderObj?.mapSystem || currentProviderObj?.shortName || "Campus Maps");
+      : (currentProviderObj?.shortName || "Campus Maps");
 
   const firstDayOfMonth = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -528,6 +532,8 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
               <span>
                 {preferredUniversity === "google_maps"
                   ? "Google Maps"
+                  : preferredUniversity === "tum"
+                  ? "TUM (TU München)"
                   : preferredUniversity === "other" && customUniversity
                   ? customUniversity
                   : (SUPPORTED_UNIVERSITIES.find((u) => u.id === preferredUniversity)?.shortName || "TU Wien")}

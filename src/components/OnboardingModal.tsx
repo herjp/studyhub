@@ -246,6 +246,7 @@ export function OnboardingModal({ isOpen, onClose }: OnboardingModalProps) {
   const handleFinish = () => {
     try {
       if (typeof window !== "undefined") {
+        localStorage.setItem("studyhub_tour_v2", "true");
         localStorage.setItem("studyhub_onboarding_seen", "true");
       }
     } catch {
