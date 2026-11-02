@@ -17,6 +17,11 @@ export async function GET() {
       avatarUrl: true,
       twoFactorEnabled: true,
       createdAt: true,
+      aiProvider: true,
+      geminiApiKey: true,
+      openaiApiKey: true,
+      anthropicApiKey: true,
+      aiModel: true,
     },
   });
 

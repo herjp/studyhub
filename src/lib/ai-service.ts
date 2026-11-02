@@ -56,8 +56,9 @@ export interface GeneratedQuestion {
 }
 
 export const DEFAULT_GEMINI_KEY =
-  process.env.GEMINI_API_KEY ||
-  Buffer.from("QVEuQWI4Uk42S0FmbVBUT0l2c2pkMTJTVi1rYk83MVAyTGlzWGc0MXhZQkZRTmpkMHRnelE=", "base64").toString("utf-8");
+  (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.startsWith("AIzaSy"))
+    ? process.env.GEMINI_API_KEY
+    : "";
 
 /**
  * Robust JSON extraction from raw model response, handling markdown blocks & formatting.

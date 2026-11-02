@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { evaluateFreeTextAnswer } from "@/lib/ai-service";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const {
+    let {
       questionId,
       moduleId,
       questionText,
@@ -24,14 +25,36 @@ export async function POST(req: Request) {
       );
     }
 
+    // Fallback to database user AI settings if not provided in request body
+    if (!apiKey || !apiKey.trim()) {
+      const user = await getCurrentUser();
+      if (user) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { aiProvider: true, geminiApiKey: true, openaiApiKey: true, anthropicApiKey: true },
+        });
+        if (dbUser) {
+          const effectiveProvider = provider || dbUser.aiProvider || "gemini";
+          provider = effectiveProvider;
+          if (effectiveProvider === "gemini") apiKey = dbUser.geminiApiKey || undefined;
+          else if (effectiveProvider === "openai") apiKey = dbUser.openaiApiKey || undefined;
+          else if (effectiveProvider === "anthropic") apiKey = dbUser.anthropicApiKey || undefined;
+          if (!apiKey && dbUser.geminiApiKey) {
+            apiKey = dbUser.geminiApiKey;
+            provider = "gemini";
+          }
+        }
+      }
+    }
+
     const evaluation = await evaluateFreeTextAnswer({
       moduleId,
       questionText,
       sampleSolution: sampleSolution || "",
       userAnswer,
       sourceRef,
-      apiKey,
-      provider,
+      apiKey: apiKey?.trim() || undefined,
+      provider: provider || "gemini",
       lang,
     });
 

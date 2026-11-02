@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { askModuleTutor } from "@/lib/ai-service";
+import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { moduleId, question, chatHistory, apiKey, provider, lang } = body;
+    let { moduleId, question, chatHistory, apiKey, provider, lang } = body;
 
     if (!moduleId || !question?.trim()) {
       return NextResponse.json(
@@ -13,12 +15,40 @@ export async function POST(req: Request) {
       );
     }
 
+    // Fallback to database user AI settings if not provided in request body
+    if (!apiKey || !apiKey.trim()) {
+      const user = await getCurrentUser();
+      if (user) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: {
+            aiProvider: true,
+            geminiApiKey: true,
+            openaiApiKey: true,
+            anthropicApiKey: true,
+          },
+        });
+        if (dbUser) {
+          const effectiveProvider = provider || dbUser.aiProvider || "gemini";
+          provider = effectiveProvider;
+          if (effectiveProvider === "gemini") apiKey = dbUser.geminiApiKey || undefined;
+          else if (effectiveProvider === "openai") apiKey = dbUser.openaiApiKey || undefined;
+          else if (effectiveProvider === "anthropic") apiKey = dbUser.anthropicApiKey || undefined;
+          // also fallback to gemini key if chosen provider has no key
+          if (!apiKey && dbUser.geminiApiKey) {
+            apiKey = dbUser.geminiApiKey;
+            provider = "gemini";
+          }
+        }
+      }
+    }
+
     const response = await askModuleTutor({
       moduleId,
       question: question.trim(),
       chatHistory,
-      apiKey,
-      provider,
+      apiKey: apiKey?.trim() || undefined,
+      provider: provider || "gemini",
       lang,
     });
 

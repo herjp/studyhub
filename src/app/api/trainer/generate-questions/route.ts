@@ -94,6 +94,30 @@ export async function POST(req: Request) {
       .join("\n\n");
 
     // 7. Generate questions strictly from uploaded documents without duplicates
+    let effectiveApiKey = apiKey?.trim() || undefined;
+    let effectiveProvider = provider || "gemini";
+    let effectiveModel = model;
+
+    if (!effectiveApiKey) {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { aiProvider: true, geminiApiKey: true, openaiApiKey: true, anthropicApiKey: true, aiModel: true },
+      });
+      if (dbUser) {
+        effectiveProvider = provider || dbUser.aiProvider || "gemini";
+        if (effectiveProvider === "gemini") effectiveApiKey = dbUser.geminiApiKey || undefined;
+        else if (effectiveProvider === "openai") effectiveApiKey = dbUser.openaiApiKey || undefined;
+        else if (effectiveProvider === "anthropic") effectiveApiKey = dbUser.anthropicApiKey || undefined;
+        if (!effectiveApiKey && dbUser.geminiApiKey) {
+          effectiveApiKey = dbUser.geminiApiKey;
+          effectiveProvider = "gemini";
+        }
+        if (!effectiveModel && dbUser.aiModel) {
+          effectiveModel = dbUser.aiModel;
+        }
+      }
+    }
+
     let aiQuestions;
     try {
       aiQuestions = await generateQuestionsWithAI({
@@ -102,9 +126,9 @@ export async function POST(req: Request) {
         documentsText: combinedDocText,
         count: Math.min(Math.max(1, requestedCount), 30),
         existingQuestions: existingQuestionTexts,
-        apiKey: apiKey?.trim() || undefined,
-        provider,
-        model,
+        apiKey: effectiveApiKey,
+        provider: effectiveProvider,
+        model: effectiveModel,
         isEnglish: !!isEnglish,
       });
     } catch (aiErr: any) {

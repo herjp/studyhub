@@ -21,6 +21,11 @@ model User {
   resetExpires      DateTime?
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
+  aiProvider        String?    @default("gemini")
+  geminiApiKey      String?
+  openaiApiKey      String?
+  anthropicApiKey   String?
+  aiModel           String?
   semesters         Semester[]
 }
 

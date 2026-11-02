@@ -56,40 +56,44 @@ export function ModuleTutorChat({
   const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Quick API Key setup state
+  // AI status & connection state
   const [hasApiKey, setHasApiKey] = useState(false);
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [keyToast, setKeyToast] = useState<string | null>(null);
+  const [activeProvider, setActiveProvider] = useState("gemini");
+  const [activeModel, setActiveModel] = useState("gemini-2.5-flash");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
+  const checkAiConfig = () => {
+    if (typeof window === "undefined") return;
+    const provider = localStorage.getItem("studyhub_ai_provider") || "gemini";
     const key =
+      localStorage.getItem(`studyhub_api_key_${provider}`) ||
+      localStorage.getItem("studyhub_api_key") ||
       localStorage.getItem("studyhub_api_key_gemini") ||
-      localStorage.getItem("studyhub_api_key");
-    if (key && key.trim().length > 5) {
-      setHasApiKey(true);
-    }
-  }, []);
+      "";
+    const model =
+      localStorage.getItem(`studyhub_ai_model_${provider}`) ||
+      localStorage.getItem("studyhub_ai_model") ||
+      (provider === "gemini" ? "gemini-2.5-flash" : provider === "openai" ? "gpt-4o-mini" : "claude-3-5-sonnet");
 
-  const handleSaveApiKey = () => {
-    const cleanKey = apiKeyInput.trim();
-    if (!cleanKey) return;
-    localStorage.setItem("studyhub_api_key_gemini", cleanKey);
-    localStorage.setItem("studyhub_api_key", cleanKey);
-    localStorage.setItem("studyhub_ai_provider", "gemini");
-    setHasApiKey(true);
-    setShowKeyModal(false);
-    setApiKeyInput("");
-    setKeyToast(
-      lang === "de"
-        ? "✓ Google Gemini API-Schlüssel erfolgreich gespeichert! Ab sofort antwortet Gemini 2.5 Flash."
-        : "✓ Google Gemini API key saved successfully! Gemini 2.5 Flash is now active."
-    );
-    setTimeout(() => setKeyToast(null), 4000);
+    setHasApiKey(Boolean(key && key.trim().length > 5));
+    setActiveProvider(provider);
+    setActiveModel(model);
   };
+
+  useEffect(() => {
+    checkAiConfig();
+
+    const handleUpdate = () => checkAiConfig();
+    window.addEventListener("studyhub_ai_config_updated", handleUpdate);
+    window.addEventListener("storage", handleUpdate);
+
+    return () => {
+      window.removeEventListener("studyhub_ai_config_updated", handleUpdate);
+      window.removeEventListener("storage", handleUpdate);
+    };
+  }, []);
 
   // Auto-scroll to bottom of chat
   const scrollToBottom = () => {
@@ -292,21 +296,24 @@ export function ModuleTutorChat({
               </span>
 
               {hasApiKey ? (
-                <button
-                  onClick={() => setShowKeyModal((prev) => !prev)}
-                  title="Gemini API Key verwalten"
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer"
+                <div
+                  title={lang === "de" ? "Gemini KI ist aktiv & mit deinem Key verbunden" : "Gemini AI is active & connected with your key"}
+                  className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs"
                 >
-                  <Cpu className="w-3 h-3 text-indigo-500" />
-                  <span>{lang === "de" ? "Gemini AI aktiv" : "Gemini AI active"}</span>
-                </button>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                  <span>
+                    {activeProvider === "gemini" ? "Gemini" : activeProvider === "openai" ? "OpenAI" : "Claude"} {lang === "de" ? "aktiv & verbunden" : "active & connected"}
+                  </span>
+                </div>
               ) : (
                 <button
-                  onClick={() => setShowKeyModal((prev) => !prev)}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                  onClick={() => window.dispatchEvent(new Event("studyhub_open_ai_settings"))}
+                  title={lang === "de" ? "In Einstellungen verbinden" : "Connect in Settings"}
+                  className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer"
                 >
-                  <Key className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                  <span>{lang === "de" ? "Gemini Key eingeben" : "Add Gemini Key"}</span>
+                  <Sparkles className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                  <span>{lang === "de" ? "KI in Einstellungen aktivieren" : "Activate AI in Settings"}</span>
                 </button>
               )}
             </div>
@@ -338,71 +345,6 @@ export function ModuleTutorChat({
           )}
         </div>
       </div>
-
-      {/* Quick API Key Dropdown Banner */}
-      {showKeyModal && (
-        <div className="p-3.5 bg-indigo-50/90 dark:bg-slate-800/95 border-b border-indigo-200 dark:border-slate-700 animate-in slide-in-from-top duration-150">
-          <div className="max-w-xl mx-auto space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-900 dark:text-indigo-200">
-                <Key className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                <span>
-                  {lang === "de"
-                    ? "Kostenlosen Google Gemini API-Schlüssel hinterlegen"
-                    : "Add free Google Gemini API Key"}
-                </span>
-              </div>
-              <button
-                onClick={() => setShowKeyModal(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug">
-              {lang === "de"
-                ? "Mit deinem Gemini-Key erhältst du unbegrenzte, frei formulierende KI-Antworten in Echtzeit. Dein Key bleibt lokal in deinem Browser gespeichert."
-                : "With your Gemini key, you unlock unlimited live conversational AI answers. Stored locally in your browser."}
-            </p>
-            <div className="flex items-center gap-2 pt-1">
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder="AIzaSy..."
-                className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-              />
-              <button
-                onClick={handleSaveApiKey}
-                disabled={!apiKeyInput.trim()}
-                className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors cursor-pointer shrink-0"
-              >
-                {lang === "de" ? "Speichern" : "Save"}
-              </button>
-            </div>
-            <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 pt-0.5">
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline"
-              >
-                <span>{lang === "de" ? "Google AI Studio Key holen (dauert 30 Sek., kostenlos)" : "Get Google AI Studio Key (free, 30s)"}</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-              <span>{lang === "de" ? "Funktioniert auch ohne Key mit lokaler Wissens-Engine" : "Works without key via local knowledge engine"}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Confirmation Toast */}
-      {keyToast && (
-        <div className="px-4 py-2 bg-emerald-50 dark:bg-emerald-950/60 border-b border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-150">
-          <ShieldCheck className="w-4 h-4 text-emerald-600" />
-          <span>{keyToast}</span>
-        </div>
-      )}
 
       {/* Message Stream */}
       <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6">

@@ -72,9 +72,58 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     message?: string;
   } | null>(null);
 
+  const persistAiSettings = (
+    provider: string,
+    keys: Record<string, string>,
+    model?: string
+  ) => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("studyhub_ai_provider", provider);
+    localStorage.setItem("studyhub_api_key_gemini", keys.gemini || "");
+    localStorage.setItem("studyhub_api_key_openai", keys.openai || "");
+    localStorage.setItem("studyhub_api_key_anthropic", keys.anthropic || "");
+
+    const activeKey = (keys as any)[provider] || "";
+    localStorage.setItem("studyhub_api_key", activeKey);
+
+    if (model) {
+      localStorage.setItem(`studyhub_ai_model_${provider}`, model);
+      localStorage.setItem("studyhub_ai_model", model);
+    }
+
+    // Fire global events so every component (like ModuleTutorChat) updates instantly
+    window.dispatchEvent(
+      new CustomEvent("studyhub_ai_config_updated", {
+        detail: { provider, activeKey, keys, model },
+      })
+    );
+    window.dispatchEvent(new Event("storage"));
+
+    // Async DB sync to current user account
+    fetch("/api/ai/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider,
+        geminiApiKey: keys.gemini,
+        openaiApiKey: keys.openai,
+        anthropicApiKey: keys.anthropic,
+        model,
+      }),
+    }).catch((err) => console.warn("Failed to sync AI settings to server:", err));
+  };
+
   const handleProviderChange = (newProvider: string) => {
     setAiProvider(newProvider);
     setTestStatus(null);
+    persistAiSettings(newProvider, providerKeys);
+  };
+
+  const handleKeyChange = (val: string) => {
+    const updated = { ...providerKeys, [aiProvider]: val };
+    setProviderKeys(updated);
+    setTestStatus(null);
+    persistAiSettings(aiProvider, updated);
   };
 
   const getDisplayModel = (provider: string) => {
@@ -119,12 +168,7 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
           message: data.message || "Verbindung erfolgreich!",
         });
         localStorage.setItem("studyhub_ai_status", "connected");
-        localStorage.setItem(`studyhub_api_key_${aiProvider}`, activeKey);
-        localStorage.setItem("studyhub_api_key", activeKey);
-        if (data.model) {
-          localStorage.setItem(`studyhub_ai_model_${aiProvider}`, data.model);
-          localStorage.setItem("studyhub_ai_model", data.model);
-        }
+        persistAiSettings(aiProvider, providerKeys, data.model);
       } else {
         setTestStatus({
           loading: false,
@@ -165,6 +209,30 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
         setCurrentUser(data.user);
         if (data.user) {
           checkFirstLoginTour(data.user);
+
+          // Restore AI settings from user account in DB if available
+          const dbProvider = data.user.aiProvider || "gemini";
+          const dbGemini = data.user.geminiApiKey || "";
+          const dbOpenai = data.user.openaiApiKey || "";
+          const dbAnthropic = data.user.anthropicApiKey || "";
+
+          setProviderKeys((prev) => {
+            const merged = {
+              gemini: prev.gemini || dbGemini,
+              openai: prev.openai || dbOpenai,
+              anthropic: prev.anthropic || dbAnthropic,
+            };
+            if (merged.gemini) localStorage.setItem("studyhub_api_key_gemini", merged.gemini);
+            if (merged.openai) localStorage.setItem("studyhub_api_key_openai", merged.openai);
+            if (merged.anthropic) localStorage.setItem("studyhub_api_key_anthropic", merged.anthropic);
+            if (dbProvider) {
+              setAiProvider(dbProvider);
+              localStorage.setItem("studyhub_ai_provider", dbProvider);
+              const activeKey = (merged as any)[dbProvider] || "";
+              if (activeKey) localStorage.setItem("studyhub_api_key", activeKey);
+            }
+            return merged;
+          });
         }
       }
     } catch (e) {
@@ -205,6 +273,11 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     };
     window.addEventListener("studyhub_user_updated", handleUserUpdate);
 
+    const handleOpenAiSettings = () => {
+      setShowSettings(true);
+    };
+    window.addEventListener("studyhub_open_ai_settings", handleOpenAiSettings);
+
     // Load local settings
     const storedTarget = localStorage.getItem("studyhub_target_ects");
     if (storedTarget) setTargetEcts(Number(storedTarget));
@@ -234,22 +307,17 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
 
     return () => {
       window.removeEventListener("studyhub_user_updated", handleUserUpdate);
+      window.removeEventListener("studyhub_open_ai_settings", handleOpenAiSettings);
     };
   }, []);
 
   const handleSaveSettings = () => {
     localStorage.setItem("studyhub_target_ects", targetEcts.toString());
-    localStorage.setItem("studyhub_ai_provider", aiProvider);
     localStorage.setItem("studyhub_daily_goal", defaultDailyGoal.toString());
     localStorage.setItem("studyhub_session_size", defaultSessionSize.toString());
 
-    // Save each provider key in separate isolated storage keys
-    localStorage.setItem("studyhub_api_key_gemini", providerKeys.gemini || "");
-    localStorage.setItem("studyhub_api_key_openai", providerKeys.openai || "");
-    localStorage.setItem("studyhub_api_key_anthropic", providerKeys.anthropic || "");
-
-    const activeKey = providerKeys[aiProvider] || "";
-    localStorage.setItem("studyhub_api_key", activeKey);
+    // Persist AI configuration immediately to localStorage & user DB
+    persistAiSettings(aiProvider, providerKeys);
 
     setShowSettings(false);
   };
@@ -784,13 +852,16 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                       type="password"
                       placeholder={aiProvider === "gemini" ? "AIzaSy..." : "sk-..."}
                       value={providerKeys[aiProvider] || ""}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setProviderKeys((prev) => ({ ...prev, [aiProvider]: val }));
-                        setTestStatus(null);
-                      }}
+                      onChange={(e) => handleKeyChange(e.target.value)}
                       className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono"
                     />
+
+                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" />
+                      {lang === "de"
+                        ? "Wird sofort automatisch gespeichert & mit deinem Account verbunden."
+                        : "Instantly auto-saved & linked to your account."}
+                    </p>
 
                     <div className="flex items-center gap-2 pt-1 flex-wrap">
                       <button
