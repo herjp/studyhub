@@ -21,6 +21,8 @@ import {
   Zap,
   GraduationCap,
   Layers,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { Portal } from "./Portal";
 import { useLanguage } from "@/lib/i18n";
@@ -39,6 +41,13 @@ interface IcsImportModalProps {
   onSuccess: () => void;
 }
 
+interface ImportProgress {
+  current: number;
+  total: number;
+  percent: number;
+  courseName: string;
+}
+
 export function IcsImportModal({
   isOpen,
   onClose,
@@ -54,6 +63,7 @@ export function IcsImportModal({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [cleanDuplicates, setCleanDuplicates] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isCleaning, setIsCleaning] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -205,6 +215,13 @@ export function IcsImportModal({
 
     setIsSubmitting(true);
     setError(null);
+    setSuccessInfo(null);
+    setImportProgress({
+      current: 0,
+      total: activeGroups.length,
+      percent: 5,
+      courseName: lang === "de" ? "Vorbereitung..." : "Preparing...",
+    });
 
     const payload = {
       courseGroups: activeGroups,
@@ -214,20 +231,76 @@ export function IcsImportModal({
     try {
       const res = await fetch("/api/calendar/import-ics", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/x-ndjson, application/json",
+        },
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Import fehlgeschlagen");
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Import fehlgeschlagen");
       }
 
-      setSuccessInfo(data.message);
+      if (!res.body) {
+        throw new Error("Keine Antwort vom Server erhalten");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finishedMessage = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const data = JSON.parse(line);
+            if (data.type === "progress") {
+              setImportProgress({
+                current: data.current,
+                total: data.total,
+                percent: Math.min(99, Math.max(5, data.percent)),
+                courseName: data.course || "",
+              });
+            } else if (data.type === "done") {
+              finishedMessage = data.message;
+              setImportProgress({
+                current: data.total,
+                total: data.total,
+                percent: 100,
+                courseName:
+                  lang === "de"
+                    ? "Import erfolgreich abgeschlossen!"
+                    : "Import completed successfully!",
+              });
+            } else if (data.type === "error") {
+              throw new Error(data.error);
+            }
+          } catch (e: any) {
+            if (e.message && !e.message.includes("JSON")) throw e;
+          }
+        }
+      }
+
+      setSuccessInfo(
+        finishedMessage ||
+          (lang === "de"
+            ? "Kalenderdaten erfolgreich importiert!"
+            : "Calendar data imported successfully!")
+      );
       setTimeout(() => {
         onSuccess();
         onClose();
-      }, 1800);
+      }, 1500);
     } catch (err: any) {
       setError(err.message || "Fehler beim Import");
     } finally {
@@ -646,6 +719,44 @@ export function IcsImportModal({
               </div>
             )}
 
+            {/* Live Real-time Progress Bar Card */}
+            {isSubmitting && importProgress && (
+              <div className="p-3.5 rounded-2xl bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 space-y-2 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="text-indigo-900 dark:text-indigo-200 truncate flex items-center gap-2 max-w-[80%]">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
+                    <span className="truncate">
+                      {lang === "de" ? "Importiere:" : "Importing:"} {importProgress.courseName}
+                    </span>
+                  </span>
+                  <span className="text-indigo-600 dark:text-indigo-400 font-mono text-xs font-black">
+                    {importProgress.percent}%
+                  </span>
+                </div>
+
+                {/* Animated Progress Bar */}
+                <div className="w-full h-2 rounded-full bg-indigo-200/60 dark:bg-indigo-900/60 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-indigo-500 via-indigo-600 to-sky-500 transition-all duration-300 rounded-full"
+                    style={{ width: `${Math.max(5, importProgress.percent)}%` }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                  <span>
+                    {lang === "de"
+                      ? `Fach ${importProgress.current} von ${importProgress.total}`
+                      : `Course ${importProgress.current} of ${importProgress.total}`}
+                  </span>
+                  <span>
+                    {importProgress.percent === 100
+                      ? (lang === "de" ? "Abgeschlossen! 🎉" : "Finished! 🎉")
+                      : (lang === "de" ? "Termine werden gespeichert..." : "Saving calendar events...")}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {error && (
               <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-semibold flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -666,7 +777,8 @@ export function IcsImportModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              disabled={isSubmitting}
+              className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
             >
               {t.cancel}
             </button>
@@ -676,14 +788,38 @@ export function IcsImportModal({
                 type="button"
                 onClick={handleSubmit}
                 disabled={isSubmitting || courseGroups.filter((g) => g.action !== "ignore").length === 0}
-                className="inline-flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/20 transition-all disabled:opacity-50"
+                className="relative overflow-hidden inline-flex items-center justify-center gap-2 px-6 py-2.5 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/20 transition-all disabled:opacity-85 disabled:cursor-wait min-w-[210px]"
               >
-                <Check className="w-4 h-4" />
-                {isSubmitting
-                  ? (lang === "de" ? "Wird importiert..." : "Importing...")
-                  : (lang === "de"
-                      ? `${courseGroups.filter((g) => g.action !== "ignore").length} Module & Termine importieren`
-                      : `Import ${courseGroups.filter((g) => g.action !== "ignore").length} Modules & Events`)}
+                {/* Live Progress Bar Fill inside Button */}
+                {isSubmitting && (
+                  <div
+                    className="absolute left-0 top-0 bottom-0 bg-white/25 dark:bg-white/20 transition-all duration-300 ease-out pointer-events-none"
+                    style={{ width: `${importProgress ? Math.max(8, importProgress.percent) : 15}%` }}
+                  />
+                )}
+
+                {/* Button Content */}
+                <div className="relative z-10 flex items-center justify-center gap-2">
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>
+                        {importProgress
+                          ? `${importProgress.percent}% (${importProgress.current}/${importProgress.total} ${lang === "de" ? "Fächer" : "courses"})`
+                          : (lang === "de" ? "Wird importiert..." : "Importing...")}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>
+                        {lang === "de"
+                          ? `${courseGroups.filter((g) => g.action !== "ignore").length} Module & Termine importieren`
+                          : `Import ${courseGroups.filter((g) => g.action !== "ignore").length} Modules & Events`}
+                      </span>
+                    </>
+                  )}
+                </div>
               </button>
             )}
           </div>
