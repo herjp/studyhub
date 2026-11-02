@@ -584,18 +584,6 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
             )}
           </div>
 
-          {/* Merge Duplicate Courses Button */}
-          <button
-            type="button"
-            onClick={handleMergeCourses}
-            disabled={isMergingCourses}
-            title={lang === "de" ? "Doppelte Termine gleicher Modulnummern (330...) automatisch bündeln" : "Consolidate duplicate course numbers"}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-all shadow-2xs disabled:opacity-50"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-            <span>{isMergingCourses ? (lang === "de" ? "Führe zusammen..." : "Merging...") : (lang === "de" ? "Module zusammenführen" : "Merge Courses")}</span>
-          </button>
-
           {/* Import .ics Calendar */}
           <button
             onClick={() => setIsIcsModalOpen(true)}
@@ -624,13 +612,6 @@ export function ExamCalendar({ onExamUpdated }: { onExamUpdated?: () => void }) 
           </button>
         </div>
       </div>
-
-      {mergeMessage && (
-        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-2 animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-          <span>{mergeMessage}</span>
-        </div>
-      )}
 
       {/* FILTER TABS */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
