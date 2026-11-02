@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { syncExamDatesFromCalendar } from "@/lib/sync-exams";
 
 export async function GET() {
   try {
@@ -8,6 +9,9 @@ export async function GET() {
     if (!user) {
       return NextResponse.json([]);
     }
+
+    // Automatically sync exam dates, times, and rooms from calendar events into modules
+    await syncExamDatesFromCalendar(user.id);
 
     const whereClause: any = {
       examDate: { not: null },

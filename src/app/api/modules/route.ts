@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ModuleStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
+import { syncExamDatesFromCalendar } from "@/lib/sync-exams";
 
 export async function GET(req: Request) {
   try {
@@ -11,6 +12,9 @@ export async function GET(req: Request) {
     if (!user) {
       return NextResponse.json([]);
     }
+
+    // Automatically sync exam dates, times, and rooms from calendar events into modules
+    await syncExamDatesFromCalendar(user.id);
 
     const { searchParams } = new URL(req.url);
     const semesterId = searchParams.get("semesterId");

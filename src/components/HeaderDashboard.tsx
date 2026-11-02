@@ -77,6 +77,18 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
     setTestStatus(null);
   };
 
+  const getDisplayModel = (provider: string) => {
+    if (typeof window === "undefined") return "";
+    const stored =
+      localStorage.getItem(`studyhub_ai_model_${provider}`) ||
+      (aiProvider === provider ? localStorage.getItem("studyhub_ai_model") : null);
+    if (stored) return stored;
+    if (provider === "gemini") return "gemini-2.5-flash";
+    if (provider === "openai") return "gpt-4o-mini";
+    if (provider === "anthropic") return "claude-3-5-sonnet";
+    return lang === "de" ? "Lokale Heuristik (Offline)" : "Local Heuristics (Offline)";
+  };
+
   const handleTestConnection = async () => {
     const activeKey = (providerKeys[aiProvider] || "").trim();
     if (!activeKey) {
@@ -287,9 +299,6 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                 <div className="flex items-center gap-1.5">
                   <span className="text-base font-black tracking-tight text-slate-900 dark:text-white">
                     StudyHub
-                  </span>
-                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                    <Sparkles className="w-2.5 h-2.5" /> KI 2.0
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block leading-tight">
@@ -586,8 +595,14 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                   {t.settingsAiModeLabel}
                 </label>
                 <div className="space-y-2">
-                  {/* Google Gemini Pro / Flash */}
-                  <label className="flex items-center gap-3 p-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/30 hover:bg-indigo-50/70 dark:hover:bg-indigo-950/50 cursor-pointer transition-all">
+                  {/* Gemini */}
+                  <label
+                    className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer ${
+                      aiProvider === "gemini"
+                        ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-sm"
+                        : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    }`}
+                  >
                     <input
                       type="radio"
                       name="provider"
@@ -596,77 +611,132 @@ export function HeaderDashboard({ onStatsUpdated }: { onStatsUpdated?: () => voi
                       onChange={(e) => handleProviderChange(e.target.value)}
                       className="text-indigo-600 focus:ring-indigo-500"
                     />
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
-                        Google Gemini (Gemini Pro / Flash)
-                        <span className="px-1.5 py-0.2 bg-indigo-600 text-white text-[10px] rounded-full font-bold">
-                          Empfohlen / Recommended
+                        Gemini
+                        <span className="px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] rounded-full font-bold">
+                          {lang === "de" ? "Empfohlen" : "Recommended"}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        <span className="font-medium text-slate-700 dark:text-slate-300">
+                          {lang === "de" ? "Modell:" : "Model:"}
+                        </span>{" "}
+                        <code className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">
+                          {getDisplayModel("gemini")}
+                        </code>
+                        {" • "}
                         {lang === "de"
-                          ? "Kostenloser API-Key auf Google AI Studio (aistudio.google.com). Echte KI-Klausurbewertung & Fragengenerierung."
-                          : "Free API key from Google AI Studio (aistudio.google.com). Real semantic AI exam grading & question generation."}
+                          ? "Kostenloser API-Key bei Google AI Studio"
+                          : "Free API key from Google AI Studio"}
                       </p>
                     </div>
                   </label>
 
-                  <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="provider"
-                      value="local"
-                      checked={aiProvider === "local"}
-                      onChange={(e) => handleProviderChange(e.target.value)}
-                      className="text-indigo-600"
-                    />
-                    <div>
-                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                        {t.settingsLocalTitle}
-                        <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] rounded font-semibold">
-                          {t.settingsLocalNoKey}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        {t.settingsLocalDesc}
-                      </p>
-                    </div>
-                  </label>
-
-                  <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
+                  {/* OpenAI */}
+                  <label
+                    className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer ${
+                      aiProvider === "openai"
+                        ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-sm"
+                        : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    }`}
+                  >
                     <input
                       type="radio"
                       name="provider"
                       value="openai"
                       checked={aiProvider === "openai"}
                       onChange={(e) => handleProviderChange(e.target.value)}
-                      className="text-indigo-600"
+                      className="text-indigo-600 focus:ring-indigo-500"
                     />
-                    <div>
-                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        OpenAI (gpt-4o &amp; gpt-4o-mini) Cloud
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        OpenAI
                       </div>
-                      <p className="text-[11px] text-slate-500">
-                        {t.settingsOpenAiDesc}
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        <span className="font-medium text-slate-700 dark:text-slate-300">
+                          {lang === "de" ? "Modell:" : "Model:"}
+                        </span>{" "}
+                        <code className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">
+                          {getDisplayModel("openai")}
+                        </code>
+                        {" • "}
+                        {lang === "de"
+                          ? "OpenAI API Key (gpt-4o / mini)"
+                          : "OpenAI API key (gpt-4o / mini)"}
                       </p>
                     </div>
                   </label>
 
-                  <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
+                  {/* Claude */}
+                  <label
+                    className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer ${
+                      aiProvider === "anthropic"
+                        ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-sm"
+                        : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    }`}
+                  >
                     <input
                       type="radio"
                       name="provider"
                       value="anthropic"
                       checked={aiProvider === "anthropic"}
                       onChange={(e) => handleProviderChange(e.target.value)}
-                      className="text-indigo-600"
+                      className="text-indigo-600 focus:ring-indigo-500"
                     />
-                    <div>
-                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                        Anthropic (claude-3-5-sonnet &amp; haiku) Cloud
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        Claude
                       </div>
-                      <p className="text-[11px] text-slate-500">
-                        {t.settingsAnthropicDesc}
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        <span className="font-medium text-slate-700 dark:text-slate-300">
+                          {lang === "de" ? "Modell:" : "Model:"}
+                        </span>{" "}
+                        <code className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">
+                          {getDisplayModel("anthropic")}
+                        </code>
+                        {" • "}
+                        {lang === "de"
+                          ? "Anthropic API Key (Claude 3.5 Sonnet)"
+                          : "Anthropic API key (Claude 3.5 Sonnet)"}
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Offline (RAG) */}
+                  <label
+                    className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer ${
+                      aiProvider === "local"
+                        ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40 shadow-sm"
+                        : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="provider"
+                      value="local"
+                      checked={aiProvider === "local"}
+                      onChange={(e) => handleProviderChange(e.target.value)}
+                      className="text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 flex-wrap">
+                        Offline (RAG)
+                        <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] rounded font-semibold">
+                          {lang === "de" ? "Kein Key nötig" : "No Key Required"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        <span className="font-medium text-slate-700 dark:text-slate-300">
+                          {lang === "de" ? "Modus:" : "Mode:"}
+                        </span>{" "}
+                        <code className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 font-mono">
+                          {getDisplayModel("local")}
+                        </code>
+                        {" • "}
+                        {lang === "de"
+                          ? "Kostenlos & komplett lokal im Browser"
+                          : "Free & fully local in-browser"}
                       </p>
                     </div>
                   </label>

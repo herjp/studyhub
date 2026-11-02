@@ -370,11 +370,11 @@ export const translations: Record<Language, Translations> = {
     timePrefix: "Uhrzeit:",
 
     // Detail View Tabs
-    tab1Name: "Tab 1: Dokumenten- & Altklausuren-Hub",
-    tab2Name: "Tab 2: Klausurtrainer & Schwachstellen",
-    tabTutorName: "Tab 3: KI-Tutor & Vorlesungs-Chat",
-    tab3Name: "Tab 3: Noten- & Modulabschluss",
-    tab4Name: "Tab 4: Noten- & Modulabschluss",
+    tab1Name: "Unterlagen",
+    tab2Name: "Trainer",
+    tabTutorName: "Tutor",
+    tab3Name: "Abschluss",
+    tab4Name: "Abschluss",
     weaknessRadarTitle: "Hier solltest du dich vertiefen (Schwachstellen-Radar)",
     weaknessRadarSubtitle: "Die 3 Themengebiete mit der geringsten Klausurreife in diesem Fach.",
     generateSummaryBtn: "Zusammenfassung generieren",
@@ -597,11 +597,11 @@ export const translations: Record<Language, Translations> = {
     timePrefix: "Time:",
 
     // Detail View Tabs
-    tab1Name: "Tab 1: Documents & Past Exams Hub",
-    tab2Name: "Tab 2: Exam Trainer & Knowledge Gaps",
-    tabTutorName: "Tab 3: AI Tutor & Lecture Q&A",
-    tab3Name: "Tab 3: Grades & Course Completion",
-    tab4Name: "Tab 4: Grades & Course Completion",
+    tab1Name: "Documents",
+    tab2Name: "Trainer",
+    tabTutorName: "Tutor",
+    tab3Name: "Grade",
+    tab4Name: "Grade",
     weaknessRadarTitle: "Areas to Focus On (Knowledge Radar)",
     weaknessRadarSubtitle: "The 3 topics with the lowest exam readiness score in this subject.",
     generateSummaryBtn: "Generate Summary",

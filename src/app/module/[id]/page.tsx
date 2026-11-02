@@ -1627,9 +1627,6 @@ function ModuleDetailContent() {
           >
             <MessageSquareText className="w-4 h-4" />
             {t.tabTutorName}
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300">
-              {lang === "de" ? "Frag die Vorlesung" : "Q&A"}
-            </span>
           </button>
 
           <button

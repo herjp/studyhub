@@ -9,6 +9,7 @@ import {
   ParsedIcsEvent,
 } from "@/lib/ics-parser";
 import { getSemesterInfoForDate, matchesSemesterName } from "@/lib/semester-utils";
+import { syncExamDatesFromCalendar } from "@/lib/sync-exams";
 
 export async function POST(req: Request) {
   try {
@@ -335,6 +336,9 @@ export async function POST(req: Request) {
             createdSemestersCount > 0
               ? ` (${createdSemestersCount} neue Semester wie z. B. Sommersemester automatisch angelegt)`
               : "";
+
+          // Auto-sync exam dates and locations into module headers
+          await syncExamDatesFromCalendar(user.id);
 
           send({
             type: "done",
